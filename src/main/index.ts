@@ -166,6 +166,8 @@ function startRecording(meetingId: string, channels: AudioChannel[], withScreen 
         },
         onStatus: (status) => emitLive({ type: 'status', channel, status }),
         onError: (message) => {
+          // Mensajes de una sesión que ya se cerró (p. ej. al detener): no afectan a nada.
+          if (rec !== r) return
           if (!isFatalLive(message)) return emitLive({ type: 'error', message })
           const provider = LIVE_NAMES[liveProviderFor(settings)] ?? settings.liveProvider
           emitLive({
