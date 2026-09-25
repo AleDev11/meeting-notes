@@ -16,6 +16,7 @@ import {
   type Settings,
   type UpdateState
 } from '../shared/types'
+import { finalProviderFor, liveProviderFor } from '../shared/languages'
 import { BUILTIN_PROMPTS, DEFAULT_SPEAKER_ID_PROMPT, loadSettings, rememberPeople, saveSettings } from './settings'
 import {
   applyFinalTranscript,
@@ -153,7 +154,7 @@ function startRecording(meetingId: string, channels: AudioChannel[], withScreen 
         onStatus: (status) => emitLive({ type: 'status', channel, status }),
         onError: (message) => {
           if (!isFatalLive(message)) return emitLive({ type: 'error', message })
-          const provider = LIVE_NAMES[settings.liveProvider] ?? settings.liveProvider
+          const provider = LIVE_NAMES[liveProviderFor(settings)] ?? settings.liveProvider
           emitLive({
             type: 'degraded',
             channel,
@@ -237,7 +238,7 @@ async function finalPass(meetingId: string): Promise<void> {
   } catch (err) {
     const message = (err as Error).message
     const kind = classify(message)
-    const provider = FINAL_NAMES[settings.finalProvider] ?? settings.finalProvider
+    const provider = FINAL_NAMES[finalProviderFor(settings)] ?? settings.finalProvider
     // Sin crédito, sin conexión o con la clave mal: la grabación está a salvo y se procesará más tarde.
     mutate(meetingId, (m) => {
       m.status = isRecoverable(kind) ? 'pending' : 'error'

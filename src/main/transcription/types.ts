@@ -24,7 +24,7 @@ export interface LiveSession {
 
 export interface LiveOptions {
   apiKey: string
-  language: string
+  languages: string[]
   diarize: boolean
   keyterms: string[]
   model?: string
@@ -33,7 +33,7 @@ export interface LiveOptions {
 export interface BatchOptions {
   apiKey: string
   audioFile: string
-  language: string
+  languages: string[]
   diarize: boolean
   expectedSpeakers: number | null
   keyterms: string[]
@@ -66,9 +66,6 @@ export function langCode(code: string | undefined): string | undefined {
   const base = code.toLowerCase().split(/[-_]/)[0]
   return base.length === 3 ? ISO3[base] : base
 }
-
-/** true si la reunión puede cambiar de idioma: el proveedor debe detectarlo. */
-export const isMultilingual = (language: string): boolean => !language || language === 'multi'
 
 /** Segundos de silencio a partir de los que un mismo hablante empieza fragmento nuevo. */
 export const PAUSE_SPLIT = 1.2

@@ -158,8 +158,8 @@ export interface Settings {
   keys: ApiKeys
   // general
   myName: string
-  /** Código de idioma, o 'multi' si en la reunión se mezclan varios. */
-  language: string
+  /** Idiomas que se hablan en las reuniones. Vacío = detectar cualquiera. */
+  languages: string[]
   micDeviceId: string
   /** Transcribe el micrófono aparte y lo etiqueta siempre como "yo". */
   separateMic: boolean
