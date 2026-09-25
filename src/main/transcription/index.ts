@@ -1,4 +1,5 @@
 import type { AudioChannel, FinalProvider, Settings } from '../../shared/types'
+import { isFatalLive } from '../failures'
 import { assemblyAiBatch } from './assemblyai'
 import { deepgramBatch, deepgramLive } from './deepgram'
 import { elevenLabsBatch, elevenLabsLive } from './elevenlabs'
@@ -28,6 +29,8 @@ export function resilient(open: (cb: LiveCallbacks) => LiveSession, cb: LiveCall
   let retries = 0
   let everConnected = false
   let stopped = false
+  // Sin crédito o con la clave rechazada, reconectar no sirve: la grabación sigue sin texto en vivo.
+  let fatal = false
   let session: LiveSession
 
   const connect = (): void => {
@@ -37,18 +40,23 @@ export function resilient(open: (cb: LiveCallbacks) => LiveSession, cb: LiveCall
     session = open({
       onSegment: (s) => cb.onSegment({ ...s, speaker: tag(s.speaker), start: s.start + offset, end: s.end + offset }),
       onPartial: (text, sp) => cb.onPartial(text, tag(sp)),
-      onError: cb.onError,
+      onError: (message) => {
+        if (isFatalLive(message)) fatal = true
+        cb.onError(message)
+      },
       onStatus: (status) => {
         if (status === 'connected') {
           everConnected = true
           retries = 0
           cb.onStatus(status)
-        } else if (!stopped && gen === generation && everConnected && retries < MAX_RETRIES) {
+        } else if (!stopped && !fatal && gen === generation && everConnected && retries < MAX_RETRIES) {
           retries++
           generation++
           setTimeout(() => !stopped && connect(), 1000 * retries)
         } else if (gen === generation) {
-          if (!stopped && everConnected) cb.onError('Se ha perdido la conexión de la transcripción en vivo. La grabación continúa.')
+          if (!stopped && !fatal && everConnected) {
+            cb.onError('Se ha perdido la conexión de la transcripción en vivo. La grabación continúa.')
+          }
           cb.onStatus(status)
         }
       }

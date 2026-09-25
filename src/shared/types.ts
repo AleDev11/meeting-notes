@@ -52,7 +52,8 @@ export interface NoteSection {
   order: number
 }
 
-export type MeetingStatus = 'idle' | 'recording' | 'processing' | 'done' | 'error'
+/** pending: la transcripción final no se pudo hacer (sin crédito, sin conexión…) y se reintentará sola. */
+export type MeetingStatus = 'idle' | 'recording' | 'processing' | 'pending' | 'done' | 'error'
 
 export interface Meeting {
   id: string
@@ -71,6 +72,8 @@ export interface Meeting {
   hasAudio: boolean
   /** Se grabó también la pantalla (screen.mp4). */
   hasScreen?: boolean
+  /** Segundo de la reunión en que empieza el vídeo, si se activó a mitad de grabación. */
+  screenOffset?: number
   status: MeetingStatus
   error?: string
 }
@@ -120,6 +123,8 @@ export interface Settings {
   /** Grabar también la pantalla y cuál (identificador del monitor). */
   recordScreen: boolean
   screenDisplayId: string
+  /** Preguntar al empezar cada grabación si se graba la pantalla. */
+  askScreen: boolean
   // transcripción
   liveProvider: LiveProvider
   finalProvider: FinalProvider
@@ -146,12 +151,14 @@ export interface Settings {
 }
 
 /** Acciones rápidas desde la bandeja o el icono de la barra de tareas. */
-export type AppAction = 'open' | 'new-meeting' | 'record' | 'stop' | 'pause' | 'mini' | 'stop-and-quit'
+export type AppAction = 'open' | 'new-meeting' | 'record' | 'stop' | 'pause' | 'mini' | 'stop-and-quit' | 'toggle-screen'
 
 export type LiveEvent =
   | { type: 'partial'; channel: AudioChannel; speakerId: string; text: string }
   | { type: 'status'; channel: AudioChannel; status: 'connected' | 'closed' }
   | { type: 'error'; message: string }
+  /** La transcripción en vivo se ha detenido (sin crédito, clave rechazada) pero se sigue grabando. */
+  | { type: 'degraded'; channel: AudioChannel; message: string }
 
 export type SummaryEvent = { meetingId: string; delta: string }
 
@@ -185,13 +192,16 @@ export interface MiniState {
   title: string
   recording: boolean
   paused: boolean
+  /** Aviso cuando la transcripción en vivo se ha detenido pero se sigue grabando. */
+  notice?: string
   elapsed: number
   mic: SourceState
   system: SourceState
+  screen: boolean
   lines: MiniLine[]
 }
 
-export type MiniCommand = 'pause' | 'resume' | 'toggleMic' | 'toggleSystem' | 'stop' | 'expand'
+export type MiniCommand = 'pause' | 'resume' | 'toggleMic' | 'toggleSystem' | 'toggleScreen' | 'stop' | 'expand'
 
 export type UpdateStatus =
   | 'unsupported'

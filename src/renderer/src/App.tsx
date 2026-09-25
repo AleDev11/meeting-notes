@@ -16,6 +16,7 @@ import {
 } from '@shared/types'
 import { channelsFor, MeetingRecorder, type Levels, type Source } from './audio/recorder'
 import { MeetingView } from './components/MeetingView'
+import { ScreenPrompt, type ScreenChoice } from './components/ScreenPrompt'
 import { SettingsView } from './components/SettingsView'
 import { Sidebar } from './components/Sidebar'
 import type { LivePartial } from './components/TranscriptView'
@@ -56,6 +57,10 @@ function Shell(): React.JSX.Element {
   const [paused, setPaused] = useState(false)
   const [muted, setMuted] = useState<Record<Source, boolean>>({ mic: false, system: false })
   const [miniOpen, setMiniOpen] = useState(false)
+  /** Aviso de que la transcripción en vivo se ha detenido (sin crédito…) aunque se sigue grabando. */
+  const [liveNotice, setLiveNotice] = useState<string | null>(null)
+  const [screenOn, setScreenOn] = useState(false)
+  const [screenAsk, setScreenAsk] = useState<((c: ScreenChoice | null) => void) | null>(null)
   const [levels, setLevels] = useState<Levels>({})
   const [partials, setPartials] = useState<Partial<Record<AudioChannel, LivePartial>>>({})
   const [captureMic, setCaptureMic] = useState(true)
@@ -108,6 +113,9 @@ function Shell(): React.JSX.Element {
         setPartials((p) => ({ ...p, [e.channel]: { speakerId: e.speakerId, text: e.text } }))
       } else if (e.type === 'error') {
         ui.toast(e.message)
+      } else if (e.type === 'degraded') {
+        setLiveNotice(e.message)
+        setPartials((p) => ({ ...p, [e.channel]: undefined }))
       }
     })
     const offSummary = window.api.onSummaryDelta(({ meetingId, delta }) =>
@@ -297,6 +305,18 @@ function Shell(): React.JSX.Element {
     )
       return
 
+    // ¿Grabar también la pantalla? Se pregunta salvo que se haya pedido no volver a hacerlo.
+    let withScreen = settings.recordScreen
+    let displayId = settings.screenDisplayId
+    if (settings.askScreen) {
+      const choice = await new Promise<ScreenChoice | null>((resolve) => setScreenAsk(() => resolve))
+      setScreenAsk(null)
+      if (!choice) return
+      withScreen = choice.screen
+      displayId = choice.displayId
+      await saveSettings({ ...settings, recordScreen: choice.screen, screenDisplayId: choice.displayId, askScreen: !choice.remember })
+    }
+
     setStarting(true)
     await run(async () => {
       await flushSave()
@@ -306,10 +326,10 @@ function Shell(): React.JSX.Element {
         system: captureSystem,
         micDeviceId: settings.micDeviceId,
         separate: settings.separateMic,
-        screen: settings.recordScreen
+        screen: withScreen
       }
       if (!plan.mic && !plan.system) throw new Error('Activa al menos el micrófono o el audio del sistema.')
-      if (plan.screen) await window.api.selectScreen(settings.screenDisplayId)
+      await window.api.selectScreen(displayId)
       await window.api.startRecording(m.id, channelsFor(plan), plan.screen)
       const rec = new MeetingRecorder(setLevels)
       try {
@@ -320,6 +340,8 @@ function Shell(): React.JSX.Element {
         throw e
       }
       recorder.current = rec
+      setScreenOn(withScreen)
+      setLiveNotice(null)
       setPaused(false)
       setMuted({ mic: false, system: false })
       setRecordingId(m.id)
@@ -358,6 +380,18 @@ function Shell(): React.JSX.Element {
     setMuted({ ...muted, [source]: !muted[source] })
   }
 
+  /** Activa o desactiva la pantalla en mitad de la grabación. */
+  const toggleScreen = (): Promise<void> =>
+    run(async () => {
+      const rec = recorder.current
+      if (!rec || !recordingId || !settings) return
+      const next = !screenOn
+      if (next) await window.api.selectScreen(settings.screenDisplayId)
+      const offset = await rec.setScreen(next)
+      if (offset !== null) await window.api.screenStarted(recordingId, offset)
+      setScreenOn(next)
+    })
+
   const openMini = async (): Promise<void> => {
     // La ventana mini muestra la reunión que se está grabando.
     if (recordingId && meetingRef.current?.id !== recordingId) await openMeeting(recordingId)
@@ -381,6 +415,7 @@ function Shell(): React.JSX.Element {
     if (action === 'stop') return stopRecording()
     if (action === 'pause') return togglePause()
     if (action === 'mini') return openMini()
+    if (action === 'toggle-screen') return toggleScreen()
     if (action === 'stop-and-quit') {
       await stopRecording()
       await window.api.quitApp()
@@ -437,12 +472,14 @@ function Shell(): React.JSX.Element {
       title: m?.title ?? meetings.find((x) => x.id === recordingId)?.title ?? '',
       recording: !!recordingId,
       paused,
+      notice: liveNotice ?? undefined,
       elapsed,
       mic: sourceState('mic', captureMic),
       system: sourceState('system', captureSystem),
+      screen: screenOn,
       lines
     })
-  }, [miniOpen, settings, recordingMeeting, recordingId, meetings, partials, paused, elapsed, muted, captureMic, captureSystem])
+  }, [miniOpen, settings, recordingMeeting, recordingId, meetings, partials, paused, elapsed, muted, captureMic, captureSystem, liveNotice, screenOn])
 
   const generateSummary = (promptId: string): Promise<void> =>
     run(async () => {
@@ -532,6 +569,12 @@ function Shell(): React.JSX.Element {
         )}
       </AnimatePresence>
 
+      <ScreenPrompt
+        open={!!screenAsk}
+        initial={{ screen: settings.recordScreen, displayId: settings.screenDisplayId }}
+        onClose={(c) => screenAsk?.(c)}
+      />
+
       <main className="main">
         <AnimatePresence initial={false}>
           {recordingId && (!isRecordingThis || view === 'settings') && (
@@ -574,6 +617,7 @@ function Shell(): React.JSX.Element {
             onShowSidebar={() => (narrow ? setDrawerOpen(true) : setSidebarHidden(false))}
             isRecording={isRecordingThis}
             otherRecording={!!recordingId && !isRecordingThis}
+            liveNotice={isRecordingThis ? liveNotice : null}
             starting={starting}
             elapsed={elapsed}
             paused={paused}
@@ -588,6 +632,8 @@ function Shell(): React.JSX.Element {
             onCaptureSystem={setCaptureSystem}
             onMicDevice={(micDeviceId) => void saveSettings({ ...settings, micDeviceId })}
             onScreen={(patch) => void saveSettings({ ...settings, ...patch })}
+            screenOn={screenOn}
+            onToggleScreen={() => void toggleScreen()}
             onStart={() => void startRecording()}
             onStop={() => void stopRecording()}
             partials={isRecordingThis ? Object.values(partials).filter((x): x is LivePartial => !!x) : []}

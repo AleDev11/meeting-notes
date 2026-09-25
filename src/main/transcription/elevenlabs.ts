@@ -63,7 +63,7 @@ export function elevenLabsLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
       case 'warning':
         break
       default:
-        if (msg.error || msg.message) cb.onError(`ElevenLabs: ${msg.error ?? msg.message}`)
+        if (msg.error || msg.message) cb.onError(`ElevenLabs (${msg.message_type}): ${msg.error ?? msg.message}`)
     }
   })
   ws.on('error', (e) => cb.onError(`ElevenLabs: ${e.message}`))

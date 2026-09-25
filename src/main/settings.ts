@@ -107,6 +107,7 @@ const defaults: Settings = {
   separateMic: true,
   recordScreen: false,
   screenDisplayId: '',
+  askScreen: true,
   liveProvider: 'deepgram',
   finalProvider: 'elevenlabs',
   expectedSpeakers: null,

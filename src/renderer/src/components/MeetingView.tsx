@@ -40,6 +40,7 @@ interface Props {
   onShowSidebar: () => void
   isRecording: boolean
   otherRecording: boolean
+  liveNotice: string | null
   starting: boolean
   elapsed: number
   paused: boolean
@@ -53,7 +54,9 @@ interface Props {
   onCaptureMic: (v: boolean) => void
   onCaptureSystem: (v: boolean) => void
   onMicDevice: (deviceId: string) => void
-  onScreen: (patch: Pick<Partial<Settings>, 'recordScreen' | 'screenDisplayId'>) => void
+  onScreen: (patch: Pick<Partial<Settings>, 'recordScreen' | 'screenDisplayId' | 'askScreen'>) => void
+  screenOn: boolean
+  onToggleScreen: () => void
   onStart: () => void
   onStop: () => void
   partials: LivePartial[]
@@ -97,6 +100,7 @@ export function MeetingView(p: Props): React.JSX.Element {
       meeting={m}
       myName={p.settings.myName}
       recording={p.isRecording}
+      liveNotice={p.liveNotice}
       partials={p.partials}
       finalProviderName={FINAL_NAMES[p.settings.finalProvider]}
       onReassign={p.onReassign}
@@ -186,10 +190,12 @@ export function MeetingView(p: Props): React.JSX.Element {
               <SystemInfo />
             </CaptureToggle>
             <ScreenToggle
-              on={p.settings.recordScreen}
+              on={p.isRecording ? p.screenOn : p.settings.recordScreen}
               displayId={p.settings.screenDisplayId}
+              ask={p.settings.askScreen}
               recording={p.isRecording}
               onChange={p.onScreen}
+              onToggle={p.isRecording ? p.onToggleScreen : () => p.onScreen({ recordScreen: !p.settings.recordScreen })}
             />
             {p.isRecording && (
               <button
@@ -410,14 +416,16 @@ function MicPicker(p: { deviceId: string; recording: boolean; onChange: (id: str
 }
 
 /**
- * Grabar también la pantalla. Se decide antes de empezar; durante la grabación el botón
- * solo indica si se está grabando.
+ * Grabar también la pantalla. Antes de grabar elige si se graba y cuál; durante la
+ * grabación la activa o la desactiva (desactivada se graba en negro para no desincronizar).
  */
 function ScreenToggle(p: {
   on: boolean
   displayId: string
+  ask: boolean
   recording: boolean
-  onChange: (patch: Pick<Partial<Settings>, 'recordScreen' | 'screenDisplayId'>) => void
+  onChange: (patch: Pick<Partial<Settings>, 'recordScreen' | 'screenDisplayId' | 'askScreen'>) => void
+  onToggle: () => void
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [screens, setScreens] = useState<ScreenSource[] | null>(null)
@@ -429,9 +437,16 @@ function ScreenToggle(p: {
     <span className="capture-group">
       <button
         className={`capture ${p.on ? 'on' : 'off'} ${p.on && p.recording ? 'live' : ''}`}
-        disabled={p.recording}
-        onClick={() => p.onChange({ recordScreen: !p.on })}
-        title={p.recording ? (p.on ? 'Se está grabando la pantalla' : 'La pantalla no se graba en esta grabación') : p.on ? 'Pantalla: se graba' : 'Pantalla: no se graba'}
+        onClick={p.onToggle}
+        title={
+          p.recording
+            ? p.on
+              ? 'Se está grabando la pantalla. Pulsa para desactivarla'
+              : 'La pantalla no se graba. Pulsa para empezar a grabarla'
+            : p.on
+              ? 'Pantalla: se graba'
+              : 'Pantalla: no se graba'
+        }
         aria-pressed={p.on}
       >
         {p.on ? <Monitor size={15} /> : <MonitorOff size={15} />}
@@ -454,7 +469,7 @@ function ScreenToggle(p: {
                   disabled={p.recording}
                   onClick={() => {
                     setOpen(false)
-                    p.onChange({ screenDisplayId: s.displayId, recordScreen: true })
+                    p.onChange({ screenDisplayId: s.displayId, ...(!p.recording && { recordScreen: true }) })
                   }}
                 >
                   <img src={s.thumbnail} alt="" />
@@ -463,9 +478,13 @@ function ScreenToggle(p: {
               ))}
             </div>
           )}
+          <label className="check menu-check">
+            <input type="checkbox" checked={p.ask} onChange={(e) => p.onChange({ askScreen: e.target.checked })} />
+            Preguntar al empezar cada grabación
+          </label>
           <p className="menu-note">
-            Se graba en vídeo junto con el audio de la reunión, a 10 imágenes por segundo. Ocupa alrededor de 700 MB por
-            hora.{p.recording && ' El cambio se aplica en la próxima grabación.'}
+            Se graba en vídeo junto con el audio de la reunión, a 10 imágenes por segundo. Ocupa como mucho unos 700 MB por
+            hora.{p.recording && ' La pantalla elegida se aplica al volver a activarla o en la próxima grabación.'}
           </p>
         </Popover>
       </span>
