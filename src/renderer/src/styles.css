@@ -794,3 +794,35 @@ textarea.vocab { font-family: var(--font); font-size: 13px; }
 }
 .combo-toggle:hover { color: var(--text); background: var(--surface-2); }
 .select-list.drop-up { top: auto; bottom: calc(100% + 6px); }
+
+/* ---- resultados de búsqueda ---- */
+.search-results { padding: 2px 8px; }
+.search-hit {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border: none; border-radius: var(--r);
+  background: none; color: inherit; text-align: left; cursor: pointer;
+}
+.search-hit:hover { background: var(--surface-2); }
+.search-hit.selected { background: var(--surface-3); }
+.search-snippet { font-size: 12px; line-height: 1.5; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.search-snippet mark, .seg mark { background: rgba(231, 178, 90, 0.28); color: var(--text); border-radius: 3px; padding: 0 1px; }
+/* Las filas y turnos fuera de pantalla no se pintan: listas largas sin coste. */
+.row-wrap { content-visibility: auto; contain-intrinsic-size: auto 50px; }
+.turn { content-visibility: auto; contain-intrinsic-size: auto 80px; }
+
+/* ---- grabación de pantalla ---- */
+.pop-screens { width: 380px; max-width: 380px; }
+.screen-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px; }
+.screen-option {
+  display: flex; flex-direction: column; gap: 6px; padding: 6px; border: 1px solid var(--line-2); border-radius: var(--r);
+  background: none; color: var(--text-2); cursor: pointer; font-size: 11.5px; text-align: left;
+}
+.screen-option img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px; background: var(--surface-3); }
+.screen-option:hover:not(:disabled) { border-color: var(--faint); color: var(--text); }
+.screen-option.current { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 2px var(--accent-soft); }
+.player-wrap { flex-shrink: 0; display: flex; flex-direction: column; }
+.player-wrap .player { position: relative; flex-wrap: wrap; }
+.player-video { display: none; }
+.player-wrap.with-video .player-video {
+  display: block; order: -1; flex-basis: 100%; width: 100%; max-height: 38vh; margin-bottom: 8px;
+  background: #000; border-radius: var(--r); cursor: zoom-in;
+}

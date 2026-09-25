@@ -1,4 +1,4 @@
-import type { AudioChannel } from '@shared/types'
+import type { AudioChannel, RecordingTrack } from '@shared/types'
 
 export interface CapturePlan {
   meetingId: string
@@ -7,7 +7,12 @@ export interface CapturePlan {
   micDeviceId: string
   /** Transcribir el micrófono aparte (siempre "yo") y el sistema aparte. */
   separate: boolean
+  /** Grabar también la pantalla elegida (screen.mp4, con el audio mezclado). */
+  screen: boolean
 }
+
+/** Formatos de vídeo por orden de preferencia: MP4/H.264 se abre en cualquier reproductor. */
+const VIDEO_TYPES = ['video/mp4;codecs=avc1,opus', 'video/webm;codecs=h264,opus', 'video/webm;codecs=vp8,opus']
 
 /** Qué canales se transcriben en vivo según lo que se captura. */
 export function channelsFor(p: Pick<CapturePlan, 'mic' | 'system' | 'separate'>): AudioChannel[] {
@@ -42,18 +47,28 @@ export class MeetingRecorder {
 
     let systemStream: MediaStream | null = null
     let micStream: MediaStream | null = null
-    if (p.system) {
+    let screenTrack: MediaStreamTrack | null = null
+    if (p.system || p.screen) {
+      // El proceso principal entrega la pantalla elegida y el audio de todo el equipo.
       const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-      display.getVideoTracks().forEach((t) => {
-        t.stop()
-        display.removeTrack(t)
-      })
       this.streams.push(display)
-      if (display.getAudioTracks().length === 0) {
-        throw new Error('No se pudo capturar el audio del sistema.')
+      for (const t of display.getVideoTracks()) {
+        if (p.screen && !screenTrack) {
+          screenTrack = t
+          // Para reuniones y presentaciones bastan 10 imágenes por segundo a 1080p como mucho.
+          await t.applyConstraints({ frameRate: { max: 10 }, width: { max: 1920 }, height: { max: 1080 } }).catch(() => {})
+        } else {
+          t.stop()
+          display.removeTrack(t)
+        }
       }
-      systemStream = display
-      this.sources.system = display
+      if (p.system) {
+        if (display.getAudioTracks().length === 0) throw new Error('No se pudo capturar el audio del sistema.')
+        systemStream = new MediaStream(display.getAudioTracks())
+        this.sources.system = systemStream
+      } else {
+        display.getAudioTracks().forEach((t) => t.stop())
+      }
     }
     if (p.mic) {
       micStream = await navigator.mediaDevices.getUserMedia({
@@ -124,11 +139,26 @@ export class MeetingRecorder {
       this.record(p.meetingId, 'mic', micStream!, 32000)
       this.record(p.meetingId, 'system', systemStream!, 32000)
     }
+    if (screenTrack) {
+      const video = new MediaStream([screenTrack, ...mix.stream.getAudioTracks()])
+      const mimeType = VIDEO_TYPES.find((t) => MediaRecorder.isTypeSupported(t))
+      this.record(p.meetingId, 'screen', video, 64000, { mimeType, videoBitsPerSecond: 1_500_000 })
+    }
     this.resumedAt = Date.now()
   }
 
-  private record(meetingId: string, track: AudioChannel, stream: MediaStream, bitrate: number): void {
-    const rec = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: bitrate })
+  private record(
+    meetingId: string,
+    track: RecordingTrack,
+    stream: MediaStream,
+    bitrate: number,
+    video?: { mimeType?: string; videoBitsPerSecond: number }
+  ): void {
+    const rec = new MediaRecorder(stream, {
+      mimeType: video ? video.mimeType : 'audio/webm;codecs=opus',
+      audioBitsPerSecond: bitrate,
+      ...(video && { videoBitsPerSecond: video.videoBitsPerSecond })
+    })
     rec.ondataavailable = async (e) => {
       if (e.data.size > 0) window.api.sendWebm(meetingId, track, new Uint8Array(await e.data.arrayBuffer()))
     }

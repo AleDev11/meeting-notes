@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   ArrowDownToLine,
@@ -16,7 +16,7 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import type { Folder, MeetingSummary } from '@shared/types'
+import type { Folder, MeetingSummary, SearchResult } from '@shared/types'
 import { fmtDate, fmtDuration } from '../util'
 import { Select } from './Select'
 import { Logo, MenuItem, Popover, quick, soft } from './ui'
@@ -29,7 +29,8 @@ interface Props {
   selectedId: string | null
   recordingId: string | null
   settingsOpen: boolean
-  onSelect: (id: string) => void
+  /** highlight: texto buscado, para resaltarlo en la reunión. */
+  onSelect: (id: string, highlight?: string) => void
   onNewMeeting: (folderId: string | null) => void
   onNewFolder: (parentId: string | null) => void
   onRenameFolder: (f: Folder) => void
@@ -44,6 +45,20 @@ interface Props {
   onInstallUpdate: () => void
 }
 
+/** El índice marca cada coincidencia entre los caracteres U+0001 y U+0002. */
+function renderSnippet(snippet: string): React.ReactNode {
+  return snippet.split('\u0001').map((part, i) => {
+    if (i === 0) return part
+    const [hit, rest = ''] = part.split('\u0002')
+    return (
+      <span key={i}>
+        <mark>{hit}</mark>
+        {rest}
+      </span>
+    )
+  })
+}
+
 const MEETING_MIME = 'application/x-meeting'
 const FOLDER_MIME = 'application/x-folder'
 const INDENT = 14
@@ -55,16 +70,25 @@ export function Sidebar(p: Props): React.JSX.Element {
   const [sortMode, setSortMode] = useState<SortMode>('recent')
   const [menu, setMenu] = useState<string | null>(null)
 
-  const sortMeetings = (list: MeetingSummary[]): MeetingSummary[] => {
-    const copy = [...list]
-    if (sortMode === 'recent') copy.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    else if (sortMode === 'name') copy.sort((a, b) => a.title.localeCompare(b.title))
-    else copy.sort((a, b) => a.order - b.order)
-    return copy
-  }
+  // Reuniones ya ordenadas y agrupadas por carpeta: se calcula una vez por cambio,
+  // no en cada render ni por cada carpeta.
+  const byFolder = useMemo(() => {
+    const sorted = [...p.meetings]
+    if (sortMode === 'recent') sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    else if (sortMode === 'name') sorted.sort((a, b) => a.title.localeCompare(b.title))
+    else sorted.sort((a, b) => a.order - b.order)
+    const map = new Map<string | null, MeetingSummary[]>()
+    for (const m of sorted) map.set(m.folderId, [...(map.get(m.folderId) ?? []), m])
+    return map
+  }, [p.meetings, sortMode])
 
-  const q = filter.trim().toLowerCase()
-  const visibleMeetings = q ? p.meetings.filter((m) => m.title.toLowerCase().includes(q)) : p.meetings
+  const q = filter.trim()
+  const [results, setResults] = useState<SearchResult[] | null>(null)
+  useEffect(() => {
+    if (!q) return setResults(null)
+    const t = setTimeout(() => void window.api.searchLibrary(q).then(setResults), 120)
+    return () => clearTimeout(t)
+  }, [q])
 
   const toggle = (id: string): void =>
     setCollapsed((s) => {
@@ -110,16 +134,16 @@ export function Sidebar(p: Props): React.JSX.Element {
     }
   }
 
-  const countIn = (folderId: string): number => p.meetings.filter((m) => m.folderId === folderId).length
+  const countIn = (folderId: string): number => byFolder.get(folderId)?.length ?? 0
 
   const renderMeetings = (folderId: string | null, depth: number): React.JSX.Element[] =>
-    sortMeetings(visibleMeetings.filter((m) => m.folderId === folderId)).map((m) => {
+    (byFolder.get(folderId) ?? []).map((m) => {
       const recording = m.id === p.recordingId
       const selected = m.id === p.selectedId && !p.settingsOpen
       return (
         <motion.div
           key={m.id}
-          layout="position"
+          className="row-wrap"
           initial={{ opacity: 0, x: -6 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -6, transition: { duration: 0.12 } }}
@@ -311,6 +335,22 @@ export function Sidebar(p: Props): React.JSX.Element {
         />
       </div>
 
+      {results ? (
+        <div className="tree search-results">
+          {results.map((r) => (
+            <button key={r.id} className={`search-hit ${r.id === p.selectedId ? 'selected' : ''}`} onClick={() => p.onSelect(r.id, q)}>
+              <span className="row-title">{r.title}</span>
+              <span className="row-sub">{fmtDate(r.createdAt)}</span>
+              <span className="search-snippet">{renderSnippet(r.snippet)}</span>
+            </button>
+          ))}
+          {results.length === 0 && (
+            <div className="tree-empty">
+              <span>Sin resultados para “{q}”</span>
+            </div>
+          )}
+        </div>
+      ) : (
       <div
         className={['tree', dropTarget === 'root' ? 'drop' : ''].join(' ')}
         onDragOver={(e) => allow(e, 'root')}
@@ -327,8 +367,8 @@ export function Sidebar(p: Props): React.JSX.Element {
             <span>Crea una y pulsa Grabar cuando empiece la llamada.</span>
           </div>
         )}
-        {q && visibleMeetings.length === 0 && !empty && <div className="tree-empty"><span>Sin resultados para “{filter}”</span></div>}
       </div>
+      )}
 
       <div className="sidebar-bottom">
         <AnimatePresence initial={false}>

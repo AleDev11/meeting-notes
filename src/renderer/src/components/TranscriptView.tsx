@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AnimatePresence, motion } from 'motion/react'
 import { AlertCircle, ArrowDown, AudioLines, Play, RefreshCw, UserPlus, UserRound } from 'lucide-react'
 import { ME, OTHERS, speakerLabel, type Meeting, type TranscriptSegment } from '@shared/types'
-import { fmtTime, speakerColor } from '../util'
+import { fmtTime, highlightParts, speakerColor } from '../util'
 import { AudioPlayer, type PlayerHandle } from './AudioPlayer'
 import { Avatar } from './SpeakersBar'
 import { Popover, soft, Spinner } from './ui'
@@ -21,6 +21,8 @@ interface Props {
   onReassign: (segmentIds: string[], speakerId: string) => void
   onEditSegment: (segmentId: string, text: string) => void
   onRetranscribe: () => void
+  /** Texto buscado: se resalta y se salta a la primera coincidencia. */
+  highlight?: string
 }
 
 interface Turn {
@@ -71,6 +73,12 @@ export function TranscriptView(p: Props): React.JSX.Element {
     const el = scroller.current
     if (stick && el) el.scrollTo({ top: el.scrollHeight, behavior: p.recording ? 'smooth' : 'auto' })
   }, [turns, p.partials, stick, p.recording])
+
+  useEffect(() => {
+    if (!p.highlight) return
+    const t = setTimeout(() => scroller.current?.querySelector('.seg mark')?.scrollIntoView({ block: 'center' }), 250)
+    return () => clearTimeout(t)
+  }, [p.highlight, m.id])
 
   // Mientras se escucha, la transcripción acompaña al audio.
   useEffect(() => {
@@ -229,7 +237,11 @@ export function TranscriptView(p: Props): React.JSX.Element {
                               }}
                               title="Doble clic para corregir el texto"
                             >
-                              {s.text}{' '}
+                              {p.highlight
+                                ? highlightParts(s.text, p.highlight).map((part, i) =>
+                                    part.hit ? <mark key={i}>{part.text}</mark> : part.text
+                                  )
+                                : s.text}{' '}
                             </span>
                           )
                         )}
@@ -267,6 +279,7 @@ export function TranscriptView(p: Props): React.JSX.Element {
           key={m.id}
           ref={player}
           src={`meeting-audio://${m.id}/?v=${m.durationSec}`}
+          video={m.hasScreen ? `meeting-audio://${m.id}/screen?v=${m.durationSec}` : undefined}
           duration={m.durationSec}
           onTime={onTime}
         />
