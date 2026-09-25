@@ -1,6 +1,7 @@
 import { useState, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
+  ArrowDownToLine,
   ChevronRight,
   FilePlus2,
   Folder as FolderIcon,
@@ -37,6 +38,9 @@ interface Props {
   onMoveFolder: (id: string, parentId: string | null, beforeId: string | null) => void
   onOpenSettings: () => void
   onCollapse: () => void
+  /** Versión descargada y lista para instalar. */
+  updateReady: string | null
+  onInstallUpdate: () => void
 }
 
 const MEETING_MIME = 'application/x-meeting'
@@ -319,6 +323,23 @@ export function Sidebar(p: Props): React.JSX.Element {
       </div>
 
       <div className="sidebar-bottom">
+        <AnimatePresence initial={false}>
+          {p.updateReady && (
+            <motion.button
+              key="update"
+              className="update-pill"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 32 }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={soft}
+              disabled={!!p.recordingId}
+              title={p.recordingId ? 'Disponible al terminar la grabación' : 'Reinicia la app con la nueva versión'}
+              onClick={p.onInstallUpdate}
+            >
+              <ArrowDownToLine size={15} /> <span>Actualizar a v{p.updateReady}</span>
+            </motion.button>
+          )}
+        </AnimatePresence>
         <button className={`nav-item ${p.settingsOpen ? 'active' : ''}`} onClick={p.onOpenSettings}>
           <SettingsIcon size={15} /> <span>Configuración</span>
         </button>

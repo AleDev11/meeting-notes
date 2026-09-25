@@ -294,6 +294,16 @@ select {
 .nav-item.active { color: var(--text); }
 .nav-item-bg { position: absolute; inset: 0; border-radius: var(--r); background: var(--surface-3); }
 .sidebar-bottom .nav-item.active { background: var(--surface-3); }
+.update-pill {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 0 10px; margin-bottom: 4px; overflow: hidden;
+  border: none; border-radius: var(--r); background: var(--accent-soft); color: var(--accent);
+  font-size: 13px; font-weight: 550; cursor: pointer; transition: opacity 0.15s;
+}
+.update-pill:hover:not(:disabled) { opacity: 0.85; }
+.update-pill:disabled { opacity: 0.5; cursor: not-allowed; }
+.update-status { display: flex; align-items: center; gap: 6px; }
+.update-status.ready { color: var(--accent); }
+.update-status.error { color: var(--danger); }
 
 /* =====================================================================
    Avisos

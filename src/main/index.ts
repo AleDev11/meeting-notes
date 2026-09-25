@@ -9,7 +9,8 @@ import {
   type Folder,
   type LiveEvent,
   type Meeting,
-  type Settings
+  type Settings,
+  type UpdateState
 } from '../shared/types'
 import { BUILTIN_PROMPTS, DEFAULT_SPEAKER_ID_PROMPT, loadSettings, rememberPeople, saveSettings } from './settings'
 import {
@@ -24,6 +25,7 @@ import * as store from './store'
 import { buildMeetingDocument, suggestSpeakerNames, summarize, transcriptText } from './summarize'
 import { createLiveSession, transcribeFile } from './transcription'
 import type { LiveSession, RawSegment } from './transcription/types'
+import { checkForUpdates, getUpdateState, initUpdater, installUpdate } from './updater'
 
 let win: BrowserWindow | null = null
 
@@ -174,6 +176,13 @@ function registerIpc(): void {
     libraryDir: store.libraryDir()
   }))
 
+  ipcMain.handle('update:get', () => getUpdateState())
+  ipcMain.handle('update:check', () => checkForUpdates())
+  ipcMain.handle('update:install', () => {
+    if (rec) throw new Error('Termina la grabación antes de actualizar.')
+    installUpdate()
+  })
+
   ipcMain.handle('library:list', () => ({
     folders: store.listFolders(),
     meetings: store.listMeetings()
@@ -319,6 +328,7 @@ app.whenReady().then(() => {
   )
 
   createWindow()
+  initUpdater((s: UpdateState) => emit('update:state', s))
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

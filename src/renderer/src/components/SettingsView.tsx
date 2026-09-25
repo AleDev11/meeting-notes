@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ArrowDownToLine,
   AudioLines,
   Brain,
   Check,
@@ -13,6 +14,7 @@ import {
   KeyRound,
   Mic,
   Plus,
+  RefreshCw,
   RotateCcw,
   SlidersHorizontal,
   Trash2
@@ -23,10 +25,11 @@ import type {
   LiveProvider,
   LlmProvider,
   PromptTemplate,
-  Settings
+  Settings,
+  UpdateState
 } from '@shared/types'
 import { AnimatePresence, motion } from 'motion/react'
-import { fadeUp, Field, spring, Toggle, useUi } from './ui'
+import { fadeUp, Field, Spinner, spring, Toggle, useUi } from './ui'
 import { CostEstimate } from './CostEstimate'
 import { knownModels, llmPrice } from '@shared/pricing'
 
@@ -128,6 +131,9 @@ const KEYS: { id: keyof ApiKeys; name: string; use: string; url: string; steps: 
 interface Props {
   settings: Settings
   onChange: (s: Settings) => Promise<void>
+  update: UpdateState | null
+  recording: boolean
+  onInstallUpdate: () => void
 }
 
 function modelHint(model: string): string {
@@ -137,7 +143,7 @@ function modelHint(model: string): string {
     : 'Modelo sin precio conocido: no se incluirá en la estimación de coste.'
 }
 
-export function SettingsView({ settings, onChange }: Props): React.JSX.Element {
+export function SettingsView({ settings, onChange, update, recording, onInstallUpdate }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('general')
   const [s, setS] = useState(settings)
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -230,8 +236,8 @@ export function SettingsView({ settings, onChange }: Props): React.JSX.Element {
                     <FolderOpen size={15} /> Abrir carpeta
                   </button>
                 </div>
-                <p className="muted small">Versión {info?.version}</p>
               </section>
+              {update && <UpdateCard update={update} recording={recording} onInstall={onInstallUpdate} />}
             </>
           )}
 
@@ -335,6 +341,60 @@ export function SettingsView({ settings, onChange }: Props): React.JSX.Element {
     </div>
   )
 
+}
+
+function UpdateCard({
+  update: u,
+  recording,
+  onInstall
+}: {
+  update: UpdateState
+  recording: boolean
+  onInstall: () => void
+}): React.JSX.Element {
+  const status: Record<UpdateState['status'], string> = {
+    unsupported: 'Las actualizaciones solo funcionan en la versión instalada.',
+    idle: 'Se buscan actualizaciones al abrir la app y cada pocas horas.',
+    checking: 'Buscando actualizaciones…',
+    'up-to-date': 'Tienes la última versión.',
+    downloading: `Descargando la versión ${u.version}… ${u.percent ?? 0} %`,
+    ready: `La versión ${u.version} está lista. Si no reinicias ahora, se instalará al cerrar la app.`,
+    error: `No se ha podido comprobar: ${u.error ?? 'error desconocido'}`
+  }
+  const busy = u.status === 'checking' || u.status === 'downloading'
+  return (
+    <section className="card">
+      <h2>
+        <ArrowDownToLine size={16} /> Actualizaciones
+      </h2>
+      <p className="small">
+        Versión instalada <strong>{u.currentVersion}</strong>
+      </p>
+      <p className={`muted small update-status ${u.status}`}>
+        {busy && <Spinner size={12} />} {status[u.status]}
+      </p>
+      <div className="row-actions">
+        {u.status === 'ready' ? (
+          <button className="btn primary" disabled={recording} onClick={onInstall}>
+            <RefreshCw size={15} /> {recording ? 'Disponible al terminar la grabación' : 'Reiniciar y actualizar'}
+          </button>
+        ) : (
+          <button
+            className="btn"
+            disabled={busy || u.status === 'unsupported'}
+            onClick={() => void window.api.checkForUpdates()}
+          >
+            <RefreshCw size={15} /> Buscar actualizaciones
+          </button>
+        )}
+        {u.releaseUrl && (
+          <button className="btn ghost" onClick={() => void window.api.openExternal(u.releaseUrl!)}>
+            <ExternalLink size={15} /> Novedades
+          </button>
+        )}
+      </div>
+    </section>
+  )
 }
 
 function ProviderCards<T extends string>({

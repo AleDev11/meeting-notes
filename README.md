@@ -18,6 +18,7 @@ Discord…), separa a cada persona que habla, permite tomar notas por secciones 
 - **Gestión de hablantes**: renombrar, fusionar, reasignar turnos y deducir nombres a partir de la conversación.
 - **Notas** por secciones reordenables, con marcas de tiempo (`Ctrl+T`) durante la grabación.
 - **Resúmenes** con Claude u OpenAI a partir de plantillas de prompt editables.
+- **Actualizaciones automáticas**: las versiones nuevas se descargan en segundo plano y se instalan al reiniciar.
 - **Biblioteca local** en carpetas anidadas. Nada sale del equipo salvo las llamadas a los proveedores que elijas.
 
 ## Requisitos
@@ -30,7 +31,8 @@ Discord…), separa a cada persona que habla, permite tomar notas por secciones 
 ## Instalación
 
 Descarga el instalador desde la [última release](https://github.com/AleDev11/meeting-notes/releases/latest).
-Todavía no está firmado, así que Windows SmartScreen mostrará un aviso la primera vez.
+Todavía no está firmado, así que Windows SmartScreen mostrará un aviso la primera vez. Después, la app se
+actualiza sola.
 
 ### Desde el código
 

@@ -127,3 +127,22 @@ export const speakerLabel = (s: Speaker | undefined, myName = 'Yo'): string => {
   if (s.id === OTHERS) return 'Participantes'
   return `Persona ${s.index}`
 }
+
+export type UpdateStatus =
+  | 'unsupported'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'downloading'
+  | 'ready'
+  | 'error'
+
+export interface UpdateState {
+  status: UpdateStatus
+  currentVersion: string
+  /** Versión disponible (al descargar o lista para instalar). */
+  version?: string
+  percent?: number
+  releaseUrl?: string
+  error?: string
+}
