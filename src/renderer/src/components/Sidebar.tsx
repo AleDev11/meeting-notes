@@ -281,6 +281,7 @@ export function Sidebar(p: Props): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.reveal])
 
+  const clickTimer = useRef(0)
   const toggle = (id: string): void =>
     setCollapsed((s) => {
       const n = new Set(s)
@@ -610,11 +611,17 @@ export function Sidebar(p: Props): React.JSX.Element {
             draggable={!renaming}
             onDragStart={(e) => startDrag(e, { kind: 'folder', id: f.id })}
             onDragOver={(e) => overFolder(e, f, depth, isOpen)}
-            onClick={() => !renaming && toggle(f.id)}
+            onClick={(e) => {
+              if (renaming) return
+              // La flecha pliega al momento; el resto de la fila espera por si es un doble clic (renombrar).
+              if ((e.target as HTMLElement).closest('.row-chev')) return toggle(f.id)
+              clearTimeout(clickTimer.current)
+              if (e.detail === 1) clickTimer.current = window.setTimeout(() => toggle(f.id), 220)
+            }}
             onKeyDown={(e) => rowKeys(e, f.id, () => toggle(f.id))}
             onDoubleClick={() => {
               if (renaming) return
-              // Los dos clics ya han plegado y desplegado la carpeta: queda como estaba.
+              clearTimeout(clickTimer.current)
               startRename(f.id)
             }}
           >
