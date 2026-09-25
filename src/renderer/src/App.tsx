@@ -62,6 +62,7 @@ function Shell(): React.JSX.Element {
   const [captureSystem, setCaptureSystem] = useState(true)
   const [summaryStream, setSummaryStream] = useState<{ id: string; text: string } | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
+  const [highlight, setHighlight] = useState<string | undefined>()
 
   const recorder = useRef<MeetingRecorder | null>(null)
   const meetingRef = useRef<Meeting | null>(null)
@@ -150,7 +151,8 @@ function Shell(): React.JSX.Element {
     [ui]
   )
 
-  const openMeeting = async (id: string): Promise<void> => {
+  const openMeeting = async (id: string, query?: string): Promise<void> => {
+    setHighlight(query)
     await flushSave()
     setMeeting(await window.api.getMeeting(id))
     setView('meeting')
@@ -303,10 +305,12 @@ function Shell(): React.JSX.Element {
         mic: captureMic,
         system: captureSystem,
         micDeviceId: settings.micDeviceId,
-        separate: settings.separateMic
+        separate: settings.separateMic,
+        screen: settings.recordScreen
       }
       if (!plan.mic && !plan.system) throw new Error('Activa al menos el micrófono o el audio del sistema.')
-      await window.api.startRecording(m.id, channelsFor(plan))
+      if (plan.screen) await window.api.selectScreen(settings.screenDisplayId)
+      await window.api.startRecording(m.id, channelsFor(plan), plan.screen)
       const rec = new MeetingRecorder(setLevels)
       try {
         await rec.start(plan)
@@ -507,7 +511,7 @@ function Shell(): React.JSX.Element {
             selectedId={meeting?.id ?? null}
             recordingId={recordingId}
             settingsOpen={view === 'settings'}
-            onSelect={(id) => void openMeeting(id)}
+            onSelect={(id, query) => void openMeeting(id, query)}
             onNewMeeting={(f) => void newMeeting(f)}
             onNewFolder={(p) => void newFolder(p)}
             onRenameFolder={(f) => void renameFolder(f)}
@@ -583,6 +587,7 @@ function Shell(): React.JSX.Element {
             onCaptureMic={setCaptureMic}
             onCaptureSystem={setCaptureSystem}
             onMicDevice={(micDeviceId) => void saveSettings({ ...settings, micDeviceId })}
+            onScreen={(patch) => void saveSettings({ ...settings, ...patch })}
             onStart={() => void startRecording()}
             onStop={() => void stopRecording()}
             partials={isRecordingThis ? Object.values(partials).filter((x): x is LivePartial => !!x) : []}
@@ -607,6 +612,7 @@ function Shell(): React.JSX.Element {
               })
             }
             onDelete={() => void deleteMeeting(meeting)}
+            highlight={highlight}
           />
           </motion.div>
         ) : (

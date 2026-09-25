@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, screen, session, shell } from 'electron'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
@@ -10,6 +10,8 @@ import {
   type Folder,
   type LiveEvent,
   type Meeting,
+  type RecordingTrack,
+  type ScreenSource,
   type Settings,
   type UpdateState
 } from '../shared/types'
@@ -98,7 +100,26 @@ function speakerFor(r: ActiveRecording, m: Meeting, channel: AudioChannel, raw: 
   return id
 }
 
-function startRecording(meetingId: string, channels: AudioChannel[]): void {
+/** Pantalla elegida para la próxima captura (id de desktopCapturer). */
+let screenSourceId: string | null = null
+
+async function listScreens(): Promise<ScreenSource[]> {
+  const displays = screen.getAllDisplays()
+  const primary = screen.getPrimaryDisplay().id
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 320, height: 180 } })
+  return sources.map((s, i) => {
+    const d = displays.find((x) => String(x.id) === s.display_id)
+    const size = d ? ` · ${d.size.width * d.scaleFactor}×${d.size.height * d.scaleFactor}` : ''
+    return {
+      id: s.id,
+      displayId: s.display_id,
+      label: `Pantalla ${i + 1}${size}${d?.id === primary ? ' (principal)' : ''}`,
+      thumbnail: s.thumbnail.toDataURL()
+    }
+  })
+}
+
+function startRecording(meetingId: string, channels: AudioChannel[], withScreen = false): void {
   const settings = loadSettings()
   stopLiveSessions()
   const r: ActiveRecording = { meetingId, sessions: new Map(), rawToSpeaker: new Map() }
@@ -146,6 +167,7 @@ function startRecording(meetingId: string, channels: AudioChannel[]): void {
     if (channels.includes('mic')) ensureSpeaker(m, ME)
     m.status = 'recording'
     m.hasAudio = true
+    m.hasScreen = withScreen
     m.error = undefined
   })
 }
@@ -240,6 +262,7 @@ function registerIpc(): void {
     meetings: store.listMeetings()
   }))
   ipcMain.handle('library:open', () => shell.openPath(store.libraryDir()))
+  ipcMain.handle('library:search', (_e, text: string) => store.searchMeetings(text))
   ipcMain.handle('app:openExternal', (_e, url: string) => {
     // Solo enlaces web; nunca rutas locales ni otros protocolos.
     if (/^https:\/\//.test(url)) return shell.openExternal(url)
@@ -325,13 +348,23 @@ function registerIpc(): void {
   })
 
   // grabación
-  ipcMain.handle('recording:start', (_e, meetingId: string, channels: AudioChannel[]) =>
-    startRecording(meetingId, channels)
+  ipcMain.handle('recording:start', (_e, meetingId: string, channels: AudioChannel[], withScreen?: boolean) =>
+    startRecording(meetingId, channels, withScreen)
   )
   ipcMain.on('recording:pcm', (_e, channel: AudioChannel, chunk: Uint8Array) =>
     rec?.sessions.get(channel)?.sendAudio(chunk)
   )
-  ipcMain.on('recording:webm', (_e, meetingId: string, track: AudioChannel, chunk: Uint8Array) =>
+  ipcMain.handle('screens:list', () => listScreens())
+  // Elige la pantalla por su monitor; si ya no está conectado, se usa la principal.
+  ipcMain.handle('screens:select', async (_e, displayId: string) => {
+    const sources = await desktopCapturer.getSources({ types: ['screen'] })
+    screenSourceId = sources.find((s) => s.display_id === displayId)?.id ?? null
+  })
+  ipcMain.handle('meeting:showScreenFile', (_e, id: string) => {
+    const file = store.audioTrack(id, 'screen')
+    if (file) shell.showItemInFolder(file)
+  })
+  ipcMain.on('recording:webm', (_e, meetingId: string, track: RecordingTrack, chunk: Uint8Array) =>
     store.appendAudio(meetingId, track, chunk)
   )
   ipcMain.handle('recording:stop', async (_e, meetingId: string, durationSec: number) => {
@@ -376,8 +409,9 @@ app.whenReady().then(() => {
   // todo lo que suena en el equipo (Teams, Meet, Discord, Zoom, navegador...).
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
-      const [screen] = await desktopCapturer.getSources({ types: ['screen'] })
-      callback({ video: screen, audio: 'loopback' })
+      const sources = await desktopCapturer.getSources({ types: ['screen'] })
+      const source = sources.find((s) => s.id === screenSourceId) ?? sources[0]
+      callback({ video: source, audio: 'loopback' })
     },
     { useSystemPicker: false }
   )

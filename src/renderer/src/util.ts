@@ -45,3 +45,39 @@ export function errorMessage(e: unknown): string {
     ''
   )
 }
+
+/** Minúsculas y sin tildes, carácter a carácter (mantiene la correspondencia de posiciones). */
+const fold = (c: string): string => c.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+
+/**
+ * Parte un texto en trozos marcando las palabras que empiezan por alguno de los
+ * términos buscados, sin distinguir mayúsculas ni tildes (igual que el buscador).
+ */
+export function highlightParts(text: string, query: string): { text: string; hit: boolean }[] {
+  const terms = query.split(/\s+/).map(fold).filter(Boolean)
+  if (!terms.length) return [{ text, hit: false }]
+  const chars = [...text]
+  const folded = chars.map(fold)
+  const flat = folded.join('')
+  // Posición en el texto plegado -> índice del carácter original.
+  const owner: number[] = []
+  folded.forEach((f, i) => {
+    for (let k = 0; k < f.length; k++) owner.push(i)
+  })
+  const hits = new Array<boolean>(chars.length).fill(false)
+  for (const term of terms) {
+    let from = 0
+    for (let at = flat.indexOf(term); at !== -1; at = flat.indexOf(term, from)) {
+      from = at + term.length
+      if (at > 0 && /[\p{L}\p{N}]/u.test(flat[at - 1])) continue
+      for (let k = at; k < at + term.length; k++) hits[owner[k]] = true
+    }
+  }
+  const parts: { text: string; hit: boolean }[] = []
+  chars.forEach((c, i) => {
+    const last = parts[parts.length - 1]
+    if (last && last.hit === hits[i]) last.text += c
+    else parts.push({ text: c, hit: hits[i] })
+  })
+  return parts
+}

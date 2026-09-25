@@ -4,7 +4,8 @@ import { Readable } from 'stream'
 import { audioTrack } from './store'
 
 /**
- * meeting-audio://<id-reunión> sirve la grabación de una reunión al reproductor.
+ * meeting-audio://<id-reunión>/ sirve la grabación de una reunión al reproductor y
+ * meeting-audio://<id-reunión>/screen, la grabación de pantalla.
  * Admite peticiones parciales (Range) para poder saltar a cualquier punto.
  */
 const SCHEME = 'meeting-audio'
@@ -17,12 +18,14 @@ export function registerMediaScheme(): void {
 
 export function handleMediaRequests(): void {
   protocol.handle(SCHEME, (req) => {
-    const id = new URL(req.url).hostname
-    const file = /^[0-9a-f-]{36}$/.test(id) ? audioTrack(id, 'mix') : null
+    const url = new URL(req.url)
+    const id = url.hostname
+    const screen = url.pathname === '/screen'
+    const file = /^[0-9a-f-]{36}$/.test(id) ? audioTrack(id, screen ? 'screen' : 'mix') : null
     if (!file) return new Response(null, { status: 404 })
 
     const size = statSync(file).size
-    const headers = { 'Content-Type': 'audio/webm', 'Accept-Ranges': 'bytes' }
+    const headers = { 'Content-Type': screen ? 'video/mp4' : 'audio/webm', 'Accept-Ranges': 'bytes' }
     const range = /bytes=(\d*)-(\d*)/.exec(req.headers.get('Range') ?? '')
     if (!range) {
       const body = Readable.toWeb(createReadStream(file)) as ReadableStream

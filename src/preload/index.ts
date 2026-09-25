@@ -5,6 +5,9 @@ import type {
   LiveEvent,
   Meeting,
   MeetingSummary,
+  RecordingTrack,
+  ScreenSource,
+  SearchResult,
   PromptTemplate,
   Settings,
   SpeakerSuggestion,
@@ -34,6 +37,7 @@ const api = {
   listLibrary: (): Promise<{ folders: Folder[]; meetings: MeetingSummary[] }> =>
     invoke('library:list'),
   openLibrary: (): Promise<string> => invoke('library:open'),
+  searchLibrary: (text: string): Promise<SearchResult[]> => invoke('library:search', text),
   openExternal: (url: string): Promise<void> => invoke('app:openExternal', url),
 
   getUpdateState: (): Promise<UpdateState> => invoke('update:get'),
@@ -70,11 +74,14 @@ const api = {
   suggestSpeakers: (meetingId: string): Promise<SpeakerSuggestion[]> =>
     invoke('speaker:suggest', meetingId),
 
-  startRecording: (meetingId: string, channels: AudioChannel[]): Promise<void> =>
-    invoke('recording:start', meetingId, channels),
+  startRecording: (meetingId: string, channels: AudioChannel[], withScreen: boolean): Promise<void> =>
+    invoke('recording:start', meetingId, channels, withScreen),
+  listScreens: (): Promise<ScreenSource[]> => invoke('screens:list'),
+  selectScreen: (displayId: string): Promise<void> => invoke('screens:select', displayId),
+  showScreenFile: (id: string): Promise<void> => invoke('meeting:showScreenFile', id),
   sendPcm: (channel: AudioChannel, chunk: Uint8Array): void =>
     ipcRenderer.send('recording:pcm', channel, chunk),
-  sendWebm: (meetingId: string, track: AudioChannel, chunk: Uint8Array): void =>
+  sendWebm: (meetingId: string, track: RecordingTrack, chunk: Uint8Array): void =>
     ipcRenderer.send('recording:webm', meetingId, track, chunk),
   stopRecording: (meetingId: string, durationSec: number): Promise<void> =>
     invoke('recording:stop', meetingId, durationSec),

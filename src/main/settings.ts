@@ -105,6 +105,8 @@ const defaults: Settings = {
   language: 'es',
   micDeviceId: '',
   separateMic: true,
+  recordScreen: false,
+  screenDisplayId: '',
   liveProvider: 'deepgram',
   finalProvider: 'elevenlabs',
   expectedSpeakers: null,

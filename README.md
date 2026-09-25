@@ -45,6 +45,8 @@ Funciona con Teams, Google Meet, Zoom, Discord o cualquier aplicación que suene
 - **Actas con Claude u OpenAI** a partir de plantillas editables: general, 1:1, daily, cliente, entrevista.
 - **Escucha la grabación** desde cualquier frase. La transcripción sigue al audio y puedes corregir el texto con
   doble clic.
+- **Busca en todas tus reuniones**: títulos, transcripciones, notas y actas, sin importar tildes ni mayúsculas. Al
+  abrir un resultado, la transcripción salta a la coincidencia.
 - **Exporta a Markdown** con el acta, las notas y la transcripción.
 
 ## Sin estorbar durante la reunión
@@ -55,6 +57,8 @@ Funciona con Teams, Google Meet, Zoom, Discord o cualquier aplicación que suene
 <td>
 
 - **Modo mini:** una ventana pequeña, siempre visible, con las últimas frases en directo.
+- **Graba la pantalla** que elijas junto con el audio, para no perder las presentaciones. El vídeo se reproduce
+  sincronizado con la transcripción y se guarda en MP4.
 - **Pausa y silencio:** para tu micrófono o el audio de la reunión cuando no quieras que se grabe.
 - **En segundo plano:** vive en la bandeja del sistema, con acciones rápidas para crear una reunión y empezar a
   grabar. Puede iniciarse con Windows.
@@ -106,6 +110,7 @@ src/main/            proceso principal de Electron
   background.ts      bandeja del sistema, acciones rápidas e inicio con Windows
   mini.ts            ventana del modo mini
   store.ts           biblioteca en disco
+  library-index.ts   índice SQLite para listar y buscar (FTS5)
 src/preload/         puente IPC
 src/renderer/        interfaz en React
 src/shared/          tipos y tarifas compartidos

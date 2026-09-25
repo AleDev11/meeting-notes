@@ -11,32 +11,48 @@ import {
   writeFileSync
 } from 'fs'
 import { join } from 'path'
-import type { AudioChannel, Folder, Meeting, MeetingSummary } from '../shared/types'
+import type { Folder, Meeting, MeetingSummary, RecordingTrack, SearchResult } from '../shared/types'
+import { indexMeeting, listIndexed, openIndex, removeFromIndex, searchIndex, syncIndex } from './library-index'
 
 /**
  * Biblioteca en disco:
  *   library/folders.json
+ *   library/index.db                    índice para listar y buscar (se puede regenerar)
  *   library/meetings/<id>/meeting.json
  *   library/meetings/<id>/audio.webm    mezcla, para escuchar la grabación
  *   library/meetings/<id>/mic.webm      solo micrófono (si se captura por separado)
  *   library/meetings/<id>/system.webm   solo audio del sistema (si se captura por separado)
+ *   library/meetings/<id>/screen.mp4    grabación de pantalla con el audio mezclado (opcional)
  */
 export const libraryDir = (): string => join(app.getPath('userData'), 'library')
 const meetingsDir = (): string => join(libraryDir(), 'meetings')
 const meetingDir = (id: string): string => join(meetingsDir(), id)
 const foldersFile = (): string => join(libraryDir(), 'folders.json')
-const AUDIO_FILES: Record<AudioChannel, string> = { mix: 'audio.webm', mic: 'mic.webm', system: 'system.webm' }
-export const audioPath = (id: string, track: AudioChannel = 'mix'): string => join(meetingDir(id), AUDIO_FILES[track])
+const TRACK_FILES: Record<RecordingTrack, string> = {
+  mix: 'audio.webm',
+  mic: 'mic.webm',
+  system: 'system.webm',
+  screen: 'screen.mp4'
+}
+export const audioPath = (id: string, track: RecordingTrack = 'mix'): string => join(meetingDir(id), TRACK_FILES[track])
 
 /** Pista con contenido, o null si no existe o está vacía. */
-export function audioTrack(id: string, track: AudioChannel): string | null {
+export function audioTrack(id: string, track: RecordingTrack): string | null {
   const f = audioPath(id, track)
   return existsSync(f) && statSync(f).size > 0 ? f : null
 }
 
+const meetingFile = (id: string): string => join(meetingDir(id), 'meeting.json')
+
 export function initStore(): void {
   mkdirSync(meetingsDir(), { recursive: true })
   if (!existsSync(foldersFile())) writeFileSync(foldersFile(), '[]')
+  openIndex(join(libraryDir(), 'index.db'))
+  const onDisk = new Map<string, number>()
+  for (const id of readdirSync(meetingsDir())) {
+    if (existsSync(meetingFile(id))) onDisk.set(id, statSync(meetingFile(id)).mtimeMs)
+  }
+  syncIndex(onDisk, getMeeting)
 }
 
 // ---------- carpetas ----------
@@ -94,27 +110,15 @@ export function reorderFolders(updates: Pick<Folder, 'id' | 'parentId' | 'order'
 // ---------- reuniones ----------
 
 export function listMeetings(): MeetingSummary[] {
-  if (!existsSync(meetingsDir())) return []
-  const out: MeetingSummary[] = []
-  for (const id of readdirSync(meetingsDir())) {
-    const m = getMeeting(id)
-    if (m) {
-      out.push({
-        id: m.id,
-        title: m.title,
-        folderId: m.folderId,
-        order: m.order,
-        createdAt: m.createdAt,
-        status: m.status,
-        durationSec: m.durationSec
-      })
-    }
-  }
-  return out
+  return listIndexed()
+}
+
+export function searchMeetings(text: string): SearchResult[] {
+  return searchIndex(text)
 }
 
 export function getMeeting(id: string): Meeting | null {
-  const f = join(meetingDir(id), 'meeting.json')
+  const f = meetingFile(id)
   if (!existsSync(f)) return null
   const m = JSON.parse(readFileSync(f, 'utf8')) as Meeting
   // Reuniones guardadas con versiones anteriores.
@@ -126,7 +130,8 @@ export function getMeeting(id: string): Meeting | null {
 
 export function saveMeeting(m: Meeting): void {
   mkdirSync(meetingDir(m.id), { recursive: true })
-  writeFileSync(join(meetingDir(m.id), 'meeting.json'), JSON.stringify(m, null, 2))
+  writeFileSync(meetingFile(m.id), JSON.stringify(m))
+  indexMeeting(m, statSync(meetingFile(m.id)).mtimeMs)
 }
 
 export function createMeeting(folderId: string | null): Meeting {
@@ -154,6 +159,7 @@ export function createMeeting(folderId: string | null): Meeting {
 
 export function deleteMeeting(id: string): void {
   rmSync(meetingDir(id), { recursive: true, force: true })
+  removeFromIndex(id)
 }
 
 export function reorderMeetings(updates: Pick<Meeting, 'id' | 'folderId' | 'order'>[]): void {
@@ -166,9 +172,9 @@ export function reorderMeetings(updates: Pick<Meeting, 'id' | 'folderId' | 'orde
 export function resetAudio(id: string): void {
   mkdirSync(meetingDir(id), { recursive: true })
   writeFileSync(audioPath(id), Buffer.alloc(0))
-  for (const track of ['mic', 'system'] as const) rmSync(audioPath(id, track), { force: true })
+  for (const track of ['mic', 'system', 'screen'] as const) rmSync(audioPath(id, track), { force: true })
 }
 
-export function appendAudio(id: string, track: AudioChannel, chunk: Uint8Array): void {
+export function appendAudio(id: string, track: RecordingTrack, chunk: Uint8Array): void {
   appendFileSync(audioPath(id, track), chunk)
 }

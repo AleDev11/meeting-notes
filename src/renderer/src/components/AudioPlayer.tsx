@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { Pause, Play, RotateCcw, RotateCw } from 'lucide-react'
+import { ChevronDown, ChevronUp, Maximize, Pause, Play, RotateCcw, RotateCw } from 'lucide-react'
 import { fmtTime } from '../util'
 
 export interface PlayerHandle {
@@ -10,14 +10,16 @@ export interface PlayerHandle {
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75]
 
 /**
- * Reproductor de la grabación completa. La duración de un WebM grabado con
- * MediaRecorder no siempre viene en el fichero, así que se usa la de la reunión.
+ * Reproductor de la grabación completa. Si se grabó la pantalla, reproduce el vídeo
+ * (que lleva el mismo audio). La duración de lo grabado con MediaRecorder no siempre
+ * viene en el fichero, así que se usa la de la reunión.
  */
 export const AudioPlayer = forwardRef<
   PlayerHandle,
-  { src: string; duration: number; onTime: (sec: number | null) => void }
->(function AudioPlayer({ src, duration, onTime }, ref) {
-  const audio = useRef<HTMLAudioElement>(null)
+  { src: string; video?: string; duration: number; onTime: (sec: number | null) => void }
+>(function AudioPlayer({ src, video, duration, onTime }, ref) {
+  const audio = useRef<HTMLVideoElement>(null)
+  const [showVideo, setShowVideo] = useState(true)
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
   const [speed, setSpeed] = useState(1)
@@ -47,12 +49,16 @@ export const AudioPlayer = forwardRef<
   useEffect(() => () => onTime(null), [onTime])
 
   const len = total()
+  const Media = video ? 'video' : 'audio'
   return (
+    <div className={`player-wrap ${video && showVideo ? 'with-video' : ''}`}>
     <div className="player">
-      <audio
+      <Media
         ref={audio}
-        src={src}
+        src={video ?? src}
         preload="metadata"
+        className={video ? 'player-video' : undefined}
+        onDoubleClick={() => void audio.current?.requestFullscreen()}
         onPlay={() => setPlaying(true)}
         onPause={() => {
           setPlaying(false)
@@ -101,6 +107,17 @@ export const AudioPlayer = forwardRef<
       >
         {speed}×
       </button>
+      {video && (
+        <>
+          <button className="icon-btn" onClick={() => void audio.current?.requestFullscreen()} title="Ver el vídeo a pantalla completa" aria-label="Pantalla completa">
+            <Maximize size={14} />
+          </button>
+          <button className="icon-btn" onClick={() => setShowVideo(!showVideo)} title={showVideo ? 'Ocultar el vídeo' : 'Mostrar el vídeo'} aria-label={showVideo ? 'Ocultar el vídeo' : 'Mostrar el vídeo'}>
+            {showVideo ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          </button>
+        </>
+      )}
+    </div>
     </div>
   )
 })

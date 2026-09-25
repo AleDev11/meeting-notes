@@ -4,6 +4,9 @@ import {
   AudioLines,
   ChevronDown,
   Download,
+  FolderOpen,
+  Monitor,
+  MonitorOff,
   Mic,
   MicOff,
   MonitorSpeaker,
@@ -19,7 +22,7 @@ import {
   Square,
   Trash2
 } from 'lucide-react'
-import type { Meeting, NoteSection, Settings, SpeakerSuggestion } from '@shared/types'
+import type { Meeting, NoteSection, ScreenSource, Settings, SpeakerSuggestion } from '@shared/types'
 import type { Levels, Source } from '../audio/recorder'
 import { fmtDate, fmtDuration, fmtTime } from '../util'
 import { NotesPanel } from './NotesPanel'
@@ -50,6 +53,7 @@ interface Props {
   onCaptureMic: (v: boolean) => void
   onCaptureSystem: (v: boolean) => void
   onMicDevice: (deviceId: string) => void
+  onScreen: (patch: Pick<Partial<Settings>, 'recordScreen' | 'screenDisplayId'>) => void
   onStart: () => void
   onStop: () => void
   partials: LivePartial[]
@@ -66,6 +70,7 @@ interface Props {
   summaryStreaming: string | null
   onExport: () => void
   onDelete: () => void
+  highlight?: string
 }
 
 type PaneTab = 'transcript' | 'notes' | 'summary'
@@ -97,6 +102,7 @@ export function MeetingView(p: Props): React.JSX.Element {
       onReassign={p.onReassign}
       onEditSegment={p.onEditSegment}
       onRetranscribe={p.onRetranscribe}
+      highlight={p.highlight}
     />
   )
   const notes = <NotesPanel sections={m.sections} elapsedSec={p.isRecording ? p.elapsed : null} onChange={p.onSections} />
@@ -179,6 +185,12 @@ export function MeetingView(p: Props): React.JSX.Element {
             >
               <SystemInfo />
             </CaptureToggle>
+            <ScreenToggle
+              on={p.settings.recordScreen}
+              displayId={p.settings.screenDisplayId}
+              recording={p.isRecording}
+              onChange={p.onScreen}
+            />
             {p.isRecording && (
               <button
                 className={`icon-btn bordered ${p.paused ? 'is-paused' : ''}`}
@@ -230,6 +242,11 @@ export function MeetingView(p: Props): React.JSX.Element {
                 <MenuItem icon={<Download size={14} />} onClick={() => { setMenu(false); p.onExport() }}>
                   Exportar a Markdown
                 </MenuItem>
+                {m.hasScreen && !p.isRecording && (
+                  <MenuItem icon={<FolderOpen size={14} />} onClick={() => { setMenu(false); void window.api.showScreenFile(m.id) }}>
+                    Mostrar el vídeo en su carpeta
+                  </MenuItem>
+                )}
                 <MenuItem
                   icon={<RefreshCw size={14} />}
                   disabled={!m.hasAudio || p.isRecording || m.status === 'processing'}
@@ -388,6 +405,70 @@ function MicPicker(p: { deviceId: string; recording: boolean; onChange: (id: str
         ))}
         {p.recording && <p className="menu-note">El cambio se aplica en la próxima grabación.</p>}
       </Popover>
+    </span>
+  )
+}
+
+/**
+ * Grabar también la pantalla. Se decide antes de empezar; durante la grabación el botón
+ * solo indica si se está grabando.
+ */
+function ScreenToggle(p: {
+  on: boolean
+  displayId: string
+  recording: boolean
+  onChange: (patch: Pick<Partial<Settings>, 'recordScreen' | 'screenDisplayId'>) => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [screens, setScreens] = useState<ScreenSource[] | null>(null)
+  useEffect(() => {
+    if (open) void window.api.listScreens().then(setScreens)
+  }, [open])
+  const current = screens?.find((s) => s.displayId === p.displayId) ?? screens?.[0]
+  return (
+    <span className="capture-group">
+      <button
+        className={`capture ${p.on ? 'on' : 'off'} ${p.on && p.recording ? 'live' : ''}`}
+        disabled={p.recording}
+        onClick={() => p.onChange({ recordScreen: !p.on })}
+        title={p.recording ? (p.on ? 'Se está grabando la pantalla' : 'La pantalla no se graba en esta grabación') : p.on ? 'Pantalla: se graba' : 'Pantalla: no se graba'}
+        aria-pressed={p.on}
+      >
+        {p.on ? <Monitor size={15} /> : <MonitorOff size={15} />}
+        <span className="capture-label">Pantalla</span>
+      </button>
+      <span className="anchor">
+        <button className="capture-more" onClick={() => setOpen(!open)} aria-label="Elegir pantalla" title="Elegir pantalla">
+          <ChevronDown size={13} />
+        </button>
+        <Popover open={open} onClose={() => setOpen(false)} align="right" className="pop-screens">
+          <div className="menu-heading">Pantalla que se graba</div>
+          {!screens ? (
+            <p className="menu-note">Buscando pantallas…</p>
+          ) : (
+            <div className="screen-grid">
+              {screens.map((s) => (
+                <button
+                  key={s.id}
+                  className={`screen-option ${s.displayId === current?.displayId ? 'current' : ''}`}
+                  disabled={p.recording}
+                  onClick={() => {
+                    setOpen(false)
+                    p.onChange({ screenDisplayId: s.displayId, recordScreen: true })
+                  }}
+                >
+                  <img src={s.thumbnail} alt="" />
+                  <span>{s.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="menu-note">
+            Se graba en vídeo junto con el audio de la reunión, a 10 imágenes por segundo. Ocupa alrededor de 700 MB por
+            hora.{p.recording && ' El cambio se aplica en la próxima grabación.'}
+          </p>
+        </Popover>
+      </span>
     </span>
   )
 }

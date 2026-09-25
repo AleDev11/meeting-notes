@@ -8,6 +8,18 @@ export interface Folder {
 /** De qué entrada de audio viene un fragmento. */
 export type AudioChannel = 'mic' | 'system' | 'mix'
 
+/** Ficheros que se graban de una reunión: las pistas de audio y la pantalla. */
+export type RecordingTrack = AudioChannel | 'screen'
+
+/** Pantalla que se puede grabar. */
+export interface ScreenSource {
+  id: string
+  /** Identificador del monitor, estable entre sesiones. */
+  displayId: string
+  label: string
+  thumbnail: string
+}
+
 /** Id reservado para la voz del usuario (micrófono). */
 export const ME = 'me'
 /** Hablantes del audio del sistema cuando el proveedor en vivo no los separa. */
@@ -57,8 +69,19 @@ export interface Meeting {
   summary: string | null
   summaryPromptId: string | null
   hasAudio: boolean
+  /** Se grabó también la pantalla (screen.mp4). */
+  hasScreen?: boolean
   status: MeetingStatus
   error?: string
+}
+
+/** Resultado de buscar en la biblioteca. El fragmento marca cada coincidencia entre los caracteres U+0001 y U+0002. */
+export interface SearchResult {
+  id: string
+  title: string
+  createdAt: string
+  folderId: string | null
+  snippet: string
 }
 
 export type MeetingSummary = Pick<
@@ -94,6 +117,9 @@ export interface Settings {
   micDeviceId: string
   /** Transcribe el micrófono aparte y lo etiqueta siempre como "yo". */
   separateMic: boolean
+  /** Grabar también la pantalla y cuál (identificador del monitor). */
+  recordScreen: boolean
+  screenDisplayId: string
   // transcripción
   liveProvider: LiveProvider
   finalProvider: FinalProvider
