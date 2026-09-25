@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, screen, session, shell } from 'electron'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import icon from '../../resources/icon.png?asset'
 import {
   ME,
@@ -358,7 +359,13 @@ function registerIpc(): void {
     if (canceled || !filePath) return
     const notes = [...m.sections]
       .sort((a, b) => a.order - b.order)
-      .map((s) => `### ${s.title}\n\n${s.content}`)
+      .map((s) => {
+        const images = (s.attachments ?? []).flatMap((a) => {
+          const file = store.attachmentPath(m.id, a.file)
+          return file ? [`![${a.name.replace(/[[\]\\]/g, '')}](${pathToFileURL(file).href})`] : []
+        })
+        return [`### ${s.title}`, s.content, ...images].filter(Boolean).join('\n\n')
+      })
       .join('\n\n')
     writeFileSync(
       filePath,
@@ -421,6 +428,13 @@ function registerIpc(): void {
   ipcMain.handle('meeting:showScreenFile', (_e, id: string) => {
     const file = store.audioTrack(id, 'screen')
     if (file) shell.showItemInFolder(file)
+  })
+  // imágenes de las notas
+  ipcMain.handle('attachment:add', (_e, meetingId: string, bytes: Uint8Array) => store.saveAttachment(meetingId, bytes))
+  ipcMain.handle('attachment:remove', (_e, meetingId: string, file: string) => store.removeAttachment(meetingId, file))
+  ipcMain.handle('attachment:show', (_e, meetingId: string, file: string) => {
+    const path = store.attachmentPath(meetingId, file)
+    if (path) shell.showItemInFolder(path)
   })
   ipcMain.on('recording:webm', (_e, meetingId: string, track: RecordingTrack, chunk: Uint8Array) =>
     store.appendAudio(meetingId, track, chunk)

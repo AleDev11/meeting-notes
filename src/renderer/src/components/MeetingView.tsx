@@ -109,7 +109,7 @@ export function MeetingView(p: Props): React.JSX.Element {
       highlight={p.highlight}
     />
   )
-  const notes = <NotesPanel sections={m.sections} elapsedSec={p.isRecording ? p.elapsed : null} onChange={p.onSections} />
+  const notes = <NotesPanel meetingId={m.id} sections={m.sections} elapsedSec={p.isRecording ? p.elapsed : null} onChange={p.onSections} />
   const summary = (
     <SummaryPanel
       key={m.id}
