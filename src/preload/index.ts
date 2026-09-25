@@ -65,6 +65,10 @@ const api = {
   retranscribe: (id: string): Promise<void> => invoke('meeting:retranscribe', id),
   retryPending: (): Promise<void> => invoke('meeting:retryPending'),
   exportMeeting: (id: string): Promise<void> => invoke('meeting:export', id),
+  /** Guarda una imagen de las notas y devuelve el nombre del fichero (<uuid>.<ext>). */
+  addAttachment: (meetingId: string, bytes: Uint8Array): Promise<string> => invoke('attachment:add', meetingId, bytes),
+  removeAttachment: (meetingId: string, file: string): Promise<void> => invoke('attachment:remove', meetingId, file),
+  showAttachment: (meetingId: string, file: string): Promise<void> => invoke('attachment:show', meetingId, file),
 
   renameSpeaker: (meetingId: string, speakerId: string, name: string): Promise<void> =>
     invoke('speaker:rename', meetingId, speakerId, name),

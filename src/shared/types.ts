@@ -45,11 +45,32 @@ export interface Speaker {
   index: number
 }
 
+/** Imagen adjunta a una sección: library/meetings/<id>/attachments/<file>. */
+export interface NoteAttachment {
+  id: string
+  /** Nombre del fichero en disco: <uuid>.<ext>. */
+  file: string
+  /** Nombre original, para mostrarlo. */
+  name: string
+  width: number
+  height: number
+}
+
+/** Formatos de imagen que se pueden adjuntar a las notas. */
+export const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp'
+}
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+
 export interface NoteSection {
   id: string
   title: string
   content: string
   order: number
+  attachments?: NoteAttachment[]
 }
 
 /** pending: la transcripción final no se pudo hacer (sin crédito, sin conexión…) y se reintentará sola. */
