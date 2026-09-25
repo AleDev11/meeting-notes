@@ -116,7 +116,10 @@ const defaults: Settings = {
   prompts: BUILTIN_PROMPTS,
   defaultPromptId: 'general',
   speakerIdPrompt: DEFAULT_SPEAKER_ID_PROMPT,
-  knownPeople: []
+  knownPeople: [],
+  openAtLogin: false,
+  minimizeToTray: true,
+  closeToTray: true
 }
 
 const file = (): string => join(app.getPath('userData'), 'settings.json')

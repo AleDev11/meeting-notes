@@ -111,7 +111,16 @@ export interface Settings {
   speakerIdPrompt: string
   /** Nombres usados en reuniones anteriores (autocompletado). */
   knownPeople: string[]
+  // segundo plano
+  openAtLogin: boolean
+  /** Al minimizar, ocultar la ventana y seguir en la bandeja del sistema. */
+  minimizeToTray: boolean
+  /** Al cerrar la ventana, seguir en la bandeja en lugar de salir. */
+  closeToTray: boolean
 }
+
+/** Acciones rápidas desde la bandeja o el icono de la barra de tareas. */
+export type AppAction = 'open' | 'new-meeting' | 'record' | 'stop' | 'pause' | 'mini' | 'stop-and-quit'
 
 export type LiveEvent =
   | { type: 'partial'; channel: AudioChannel; speakerId: string; text: string }

@@ -22,6 +22,8 @@ Discord…), separa a cada persona que habla, permite tomar notas por secciones 
   en directo se conservan.
 - **Control durante la grabación**: pausar, silenciar tu micrófono o el audio de la reunión, y un modo mini con una
   ventana flotante que muestra la transcripción en directo.
+- **Segundo plano**: icono en la bandeja del sistema con acciones rápidas (nueva reunión, grabar, pausar, modo mini),
+  inicio con Windows y opción de minimizar o cerrar a la bandeja.
 - **Escuchar la grabación** desde cualquier frase de la transcripción y corregir el texto a mano.
 - **Vocabulario** propio (nombres, productos, siglas) para que se reconozca correctamente.
 - **Gestión de hablantes**: renombrar, fusionar, reasignar turnos y deducir nombres a partir de la conversación.

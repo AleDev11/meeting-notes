@@ -24,6 +24,7 @@ import {
   reassignSegments,
   renameSpeaker
 } from './speakers'
+import { applyLoginItem, claimSingleInstance, setupBackground, startHidden } from './background'
 import { handleMediaRequests, registerMediaScheme } from './media'
 import { registerMini } from './mini'
 import * as store from './store'
@@ -34,6 +35,9 @@ import { checkForUpdates, getUpdateState, initUpdater, installUpdate } from './u
 
 let win: BrowserWindow | null = null
 registerMediaScheme()
+// Si ya hay una ventana abierta, esa instancia recibe la petición y esta se cierra.
+const primary = claimSingleInstance()
+if (!primary) app.quit()
 
 interface ActiveRecording {
   meetingId: string
@@ -53,6 +57,8 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: '#121214',
     icon,
+    // Al iniciar con Windows la app arranca en la bandeja, sin ventana.
+    show: !startHidden(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -194,17 +200,31 @@ async function finalPass(meetingId: string): Promise<void> {
   }
 }
 
+/**
+ * Reuniones que quedaron a medias porque se cerró la app mientras se grababa o se
+ * procesaba la transcripción final: se retoma con lo que se llegó a grabar.
+ */
+function resumeInterrupted(): void {
+  for (const m of store.listMeetings()) {
+    if (m.status === 'recording' || m.status === 'processing') void finalPass(m.id)
+  }
+}
+
 // ---------------- IPC ----------------
 
 function registerIpc(): void {
   ipcMain.handle('settings:get', () => loadSettings())
-  ipcMain.handle('settings:save', (_e, s: Settings) => saveSettings(s))
+  ipcMain.handle('settings:save', (_e, s: Settings) => {
+    saveSettings(s)
+    applyLoginItem(s)
+  })
   ipcMain.handle('settings:defaults', () => ({
     prompts: BUILTIN_PROMPTS,
     speakerIdPrompt: DEFAULT_SPEAKER_ID_PROMPT
   }))
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
+    packaged: app.isPackaged,
     libraryDir: store.libraryDir()
   }))
 
@@ -346,6 +366,7 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  if (!primary) return
   store.initStore()
   registerIpc()
   registerMini(() => win, icon)
@@ -362,6 +383,8 @@ app.whenReady().then(() => {
   )
 
   createWindow()
+  setupBackground({ getWin: () => win, icon })
+  resumeInterrupted()
   initUpdater((s: UpdateState) => emit('update:state', s))
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

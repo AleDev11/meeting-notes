@@ -27,7 +27,9 @@ const api = {
   saveSettings: (s: Settings): Promise<void> => invoke('settings:save', s),
   getDefaults: (): Promise<{ prompts: PromptTemplate[]; speakerIdPrompt: string }> =>
     invoke('settings:defaults'),
-  appInfo: (): Promise<{ version: string; libraryDir: string }> => invoke('app:info'),
+  appInfo: (): Promise<{ version: string; packaged: boolean; libraryDir: string }> => invoke('app:info'),
+  publishRecordingState: (s: { recording: boolean; paused: boolean }): void => ipcRenderer.send('recording:state', s),
+  quitApp: (): Promise<void> => invoke('app:quit'),
 
   listLibrary: (): Promise<{ folders: Folder[]; meetings: MeetingSummary[] }> =>
     invoke('library:list'),

@@ -14,6 +14,7 @@ import {
   KeyRound,
   Mic,
   Plus,
+  Power,
   RefreshCw,
   RotateCcw,
   SlidersHorizontal,
@@ -159,7 +160,7 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
   const [s, setS] = useState(settings)
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved'>('idle')
   const timer = useRef<number>(0)
-  const [info, setInfo] = useState<{ version: string; libraryDir: string } | null>(null)
+  const [info, setInfo] = useState<{ version: string; packaged: boolean; libraryDir: string } | null>(null)
 
   useEffect(() => {
     void window.api.appInfo().then(setInfo)
@@ -231,6 +232,37 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                     </span>
                   ))}
                 </div>
+              </section>
+              <section className="card">
+                <h2>
+                  <Power size={16} /> Inicio y segundo plano
+                </h2>
+                <Toggle
+                  checked={s.openAtLogin}
+                  onChange={(v) => set({ openAtLogin: v })}
+                  label="Iniciar con Windows"
+                  description={
+                    info && !info.packaged
+                      ? 'Solo funciona en la versión instalada.'
+                      : 'Se abre al encender el ordenador, sin mostrar la ventana: queda en la bandeja del sistema, lista para grabar.'
+                  }
+                />
+                <Toggle
+                  checked={s.minimizeToTray}
+                  onChange={(v) => set({ minimizeToTray: v })}
+                  label="Minimizar a la bandeja del sistema"
+                  description="Al minimizar, la ventana desaparece de la barra de tareas y la app sigue junto al reloj. La grabación continúa."
+                />
+                <Toggle
+                  checked={s.closeToTray}
+                  onChange={(v) => set({ closeToTray: v })}
+                  label="Seguir en segundo plano al cerrar"
+                  description="La X oculta la ventana en lugar de salir. Para salir del todo, usa Salir en el icono de la bandeja."
+                />
+                <p className="muted small">
+                  Desde el icono de la bandeja y con clic derecho en el icono de la barra de tareas puedes crear una reunión
+                  y empezar a grabar sin abrir la ventana.
+                </p>
               </section>
               <section className="card">
                 <h2>

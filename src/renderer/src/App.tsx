@@ -3,6 +3,7 @@ import { ArrowRight, Check, KeyRound, PanelLeftOpen, Plus } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   speakerLabel,
+  type AppAction,
   type AudioChannel,
   type Folder,
   type Meeting,
@@ -271,8 +272,8 @@ function Shell(): React.JSX.Element {
     return out
   }
 
-  const startRecording = async (): Promise<void> => {
-    const m = meetingRef.current
+  const startRecording = async (target?: Meeting): Promise<void> => {
+    const m = target ?? meetingRef.current
     if (!m || !settings || recordingId) return
     const missing = missingKeys(settings)
     if (missing.length) {
@@ -359,6 +360,39 @@ function Shell(): React.JSX.Element {
     setMiniOpen(true)
     await window.api.openMini()
   }
+
+  // Acciones rápidas desde la bandeja del sistema o el icono de la barra de tareas.
+  const appActions = useRef<(a: AppAction) => Promise<void>>(async () => {})
+  appActions.current = async (action) => {
+    if (action === 'new-meeting') return newMeeting(null)
+    if (action === 'record') {
+      if (recordingId) return openMeeting(recordingId)
+      await flushSave()
+      const m = await window.api.createMeeting(null)
+      await refreshLibrary()
+      setMeeting(m)
+      setView('meeting')
+      return startRecording(m)
+    }
+    if (action === 'stop') return stopRecording()
+    if (action === 'pause') return togglePause()
+    if (action === 'mini') return openMini()
+    if (action === 'stop-and-quit') {
+      await stopRecording()
+      await window.api.quitApp()
+    }
+  }
+  useEffect(() => {
+    const w = window as Window & { __appAction?: (a: AppAction) => void }
+    w.__appAction = (a) => void appActions.current(a)
+    return () => {
+      delete w.__appAction
+    }
+  }, [])
+
+  useEffect(() => {
+    window.api.publishRecordingState({ recording: !!recordingId, paused })
+  }, [recordingId, paused])
 
   // Órdenes que llegan desde la ventana mini.
   const miniHandlers = useRef<(cmd: MiniCommand) => void>(() => {})
