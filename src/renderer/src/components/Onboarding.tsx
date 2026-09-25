@@ -15,12 +15,13 @@ import {
   User,
   X
 } from 'lucide-react'
-import type { ApiKeys, FinalProvider, KeySource, LiveProvider, LlmProvider, Settings } from '@shared/types'
+import type { ApiKeys, FinalProvider, KeySource, LiveProvider, LlmProvider, LocalAiState, Settings } from '@shared/types'
 import { finalProviderFor, languageNames, LANGUAGES, liveProviderFor } from '@shared/languages'
 import { Field, Logo, quick, soft, spring, Toggle } from './ui'
 import { MultiSelect } from './Select'
 import { keyInfo, KeyInput, KeyStatus, useKeyChecks, type KeyState } from './keys'
-import { languageHint, MicField, OllamaSettings, SEPARATE_MIC_DESC } from './SettingsView'
+import { languageHint, MicField, SEPARATE_MIC_DESC } from './SettingsView'
+import { LocalAiCard, localAiSummary, useLocalAi } from './LocalAi'
 
 type SttId = 'elevenlabs' | 'deepgram' | 'assemblyai'
 type LlmKeyId = 'anthropic' | 'openai'
@@ -49,7 +50,7 @@ const STT: { id: SttId; name: string; tag?: string; desc: string }[] = [
 const LLM: { id: LlmProvider; name: string; desc: string }[] = [
   { id: 'anthropic', name: 'Claude', desc: 'Actas muy cuidadas. Pago por uso con tu cuenta de Anthropic.' },
   { id: 'openai', name: 'ChatGPT', desc: 'Modelos de OpenAI. Pago por uso con tu cuenta de OpenAI.' },
-  { id: 'ollama', name: 'Local (Ollama)', desc: 'Gratis y sin salir de tu equipo. Más lento; pide un ordenador potente.' }
+  { id: 'ollama', name: 'Local (Ollama)', desc: 'Gratis y sin salir de tu equipo. Se instala sola con un clic; más lenta y pide un ordenador potente.' }
 ]
 
 const NAMES: Record<string, string> = {
@@ -109,6 +110,16 @@ export function Onboarding({ settings, closable, onSave, onFinish, onClose }: Pr
     void window.api.keySources().then(setSources)
   }, [])
 
+  const localAi = useLocalAi()
+  /** Ollama ya en marcha con el modelo configurado (no hace falta activarla). */
+  const [localReady, setLocalReady] = useState(false)
+  useEffect(() => {
+    if (llm !== 'ollama') return
+    void window.api.localAiDetect().then((det) => setLocalReady(det.running && det.models.includes(initial.ollamaModel)))
+  }, [llm, initial.ollamaModel])
+  // Al terminar de activarse, el proceso principal guarda proveedor y modelo: el borrador los incorpora.
+  useEffect(() => window.api.onSettingsPatched((patch) => setD((x) => ({ ...x, ...patch }))), [])
+
   // Las keys que ya había (al reabrir el asistente) se comprueban al entrar.
   useEffect(() => {
     for (const k of Object.keys(initial.keys) as (keyof ApiKeys)[]) if (initial.keys[k]) void check(k, initial.keys[k])
@@ -138,7 +149,8 @@ export function Onboarding({ settings, closable, onSave, onFinish, onClose }: Pr
   // Lo que se usará de verdad: con catalán mezclado puede pasar a ElevenLabs.
   const planned = { ...d, keys: { ...d.keys, elevenlabs: has.elevenlabs ? d.keys.elevenlabs : '' }, liveProvider: providers.live, finalProvider: providers.final }
   const effective = { live: liveProviderFor(planned), final: finalProviderFor(planned) }
-  const llmReady = llm === 'ollama' || usable(llm)
+  const llmReady =
+    llm === 'ollama' ? localReady || localAi?.status === 'running' || localAi?.status === 'done' : usable(llm)
   const llmOn = !llmLater && llmReady
 
   /** Configuración que se guarda: solo las keys comprobadas; las demás se quedan como estaban. */
@@ -302,15 +314,22 @@ export function Onboarding({ settings, closable, onSave, onFinish, onClose }: Pr
                     setLlmLater(false)
                   }}
                   status={(id) =>
-                    id === 'ollama' ? null : usable(id as LlmKeyId) ? 'ok' : checks[id as LlmKeyId] === 'checking' ? 'checking' : null
+                    id === 'ollama'
+                      ? localReady || localAi?.status === 'done'
+                        ? 'ok'
+                        : null
+                      : usable(id as LlmKeyId) ? 'ok' : checks[id as LlmKeyId] === 'checking' ? 'checking' : null
                   }
                 />
                 <AnimatePresence mode="wait" initial={false}>
                   <motion.div key={llm} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={quick}>
                     {llm === 'ollama' ? (
-                      <section className="card onb-panel">
-                        <OllamaSettings s={d} set={set} />
-                      </section>
+                      <LocalAiCard
+                        s={d}
+                        set={set}
+                        onboarding
+                        onStarted={(ollamaModel) => set({ llmProvider: 'ollama', ollamaModel })}
+                      />
                     ) : (
                       panel(llm)
                     )}
@@ -372,7 +391,7 @@ export function Onboarding({ settings, closable, onSave, onFinish, onClose }: Pr
               </>
             )}
 
-            {step === 5 && <DoneStep s={build()} llmOn={llmOn} />}
+            {step === 5 && <DoneStep s={build()} llmOn={llmOn} localAi={localAi} />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -620,7 +639,7 @@ function KeyPanel({
   )
 }
 
-function DoneStep({ s, llmOn }: { s: Settings; llmOn: boolean }): React.JSX.Element {
+function DoneStep({ s, llmOn, localAi }: { s: Settings; llmOn: boolean; localAi: LocalAiState | null }): React.JSX.Element {
   const [mic, setMic] = useState('Predeterminado del sistema')
   useEffect(() => {
     if (!s.micDeviceId) return
@@ -647,7 +666,11 @@ function DoneStep({ s, llmOn }: { s: Settings; llmOn: boolean }): React.JSX.Elem
     {
       icon: <Brain size={15} />,
       label: 'Resúmenes',
-      value: llmOn ? `${NAMES[s.llmProvider]} · ${model}` : 'Sin configurar: añádelo en Configuración > IA para resúmenes',
+      value: !llmOn
+        ? 'Sin configurar: añádelo en Configuración > IA para resúmenes'
+        : s.llmProvider === 'ollama' && localAi?.status === 'running'
+          ? `${NAMES.ollama} · ${localAi.model} · preparándose (${localAiSummary(localAi).toLowerCase()})`
+          : `${NAMES[s.llmProvider]} · ${model}`,
       off: !llmOn
     },
     {

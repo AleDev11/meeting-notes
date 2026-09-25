@@ -1094,6 +1094,90 @@ textarea.vocab { font-family: var(--font); font-size: 13px; }
 .ollama-status .dot.off { background: var(--danger); }
 .ollama-guide { margin: 0; padding: 10px 12px 10px 28px; background: var(--surface-2); border-radius: var(--r); color: var(--text-2); display: flex; flex-direction: column; gap: 6px; }
 p.ollama-guide { display: block; padding-left: 12px; }
+/* IA local con un clic */
+.lai-head { display: flex; align-items: center; gap: 12px; }
+.lai-icon { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: var(--r); background: var(--surface-3); color: var(--text-2); transition: background 0.2s var(--ease), color 0.2s; }
+.lai-icon.ok { background: var(--accent-soft); color: var(--accent); }
+.lai-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.card .lai-title h2 { font-size: 14.5px; }
+.lai-body { display: flex; flex-direction: column; gap: 14px; }
+.lai-lead { color: var(--text-2); margin: 0; }
+.lai-plan { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--surface-2); border-radius: var(--r); font-size: 13px; }
+.lai-plan-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.lai-plan-row strong { font-weight: 550; }
+.lai-plan-note { margin: 2px 0 0; color: var(--text-2); }
+.lai-plan-note.warn { color: var(--warn); }
+.lai-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.lai-actions .grow { flex: 1; }
+.lai-trust { display: inline-flex; align-items: center; gap: 6px; }
+.lai-trust svg { color: var(--accent); flex-shrink: 0; }
+.lai-bg-note { flex: 1; min-width: 180px; }
+
+.lai-steps { list-style: none; margin: 0; padding: 4px 0 0; display: flex; flex-direction: column; }
+.lai-step { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 12px; }
+.lai-step:not(:last-child)::before { content: ''; position: absolute; left: 10.5px; top: 26px; bottom: 2px; width: 1px; background: var(--line-2); transition: background 0.3s var(--ease); }
+.lai-step.done:not(:last-child)::before { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.lai-dot {
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--line-2); background: var(--surface); color: var(--muted);
+  font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+  transition: background 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s;
+}
+.lai-step.active .lai-dot { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lai-step.done .lai-dot { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.lai-step.failed .lai-dot { background: var(--danger-soft); border-color: transparent; color: var(--danger); }
+.lai-step-body { min-width: 0; padding-bottom: 14px; }
+.lai-step:last-child .lai-step-body { padding-bottom: 0; }
+.lai-step-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 22px; }
+.lai-step-name { font-weight: 500; }
+.lai-step.todo .lai-step-name { color: var(--muted); font-weight: 450; }
+.lai-step.failed .lai-step-name { color: var(--danger); }
+.lai-step-meta { font-size: 12px; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lai-step.active .lai-step-meta { color: var(--text-2); }
+.lai-progress-wrap { overflow: hidden; }
+.lai-progress { padding-top: 8px; }
+.lai-bar { position: relative; height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.lai-bar > span { position: absolute; inset: 0; background: var(--accent); border-radius: inherit; transform-origin: left; transition: transform 0.35s var(--ease); }
+.lai-bar.indeterminate > span { animation: lai-indeterminate 1.3s var(--ease) infinite; }
+@keyframes lai-indeterminate { from { translate: -100% 0; } to { translate: 340% 0; } }
+.lai-progress-text { display: flex; align-items: baseline; gap: 10px; margin-top: 7px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.lai-progress-text strong { color: var(--text); font-weight: 550; }
+.lai-pct { margin-left: auto; color: var(--text); font-weight: 550; }
+.lai-error { display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border-radius: var(--r); background: var(--danger-soft); color: var(--text); font-size: 13px; }
+.lai-error svg { color: var(--danger); flex-shrink: 0; margin-top: 2px; }
+
+.lai-ready { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r); background: var(--accent-soft); }
+.lai-ready-mark { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%; background: var(--accent); color: var(--bg); }
+.lai-ready-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lai-ready-text strong { font-weight: 550; }
+.lai-ready-text code { font-family: var(--mono); font-size: 12.5px; }
+.lai-sep { color: var(--muted); font-weight: 400; margin: 0 2px; }
+
+.lai-adv-toggle { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 -4px; padding: 4px 6px 4px 2px; border: none; border-radius: var(--r-sm); background: none; color: var(--text-2); font-size: 12.5px; font-weight: 500; cursor: pointer; transition: color 0.15s; }
+.lai-adv-toggle:hover { color: var(--text); }
+.lai-adv-toggle svg { transform: rotate(-90deg); transition: transform 0.2s var(--ease); }
+.lai-adv-toggle.open svg { transform: none; }
+.lai-adv { overflow: hidden; }
+.lai-adv-inner { display: flex; flex-direction: column; gap: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.lai-missing { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.lai-pill {
+  position: relative; display: flex; align-items: center; gap: 9px; width: 100%; padding: 0 10px; margin-bottom: 4px; overflow: hidden;
+  border: none; border-radius: var(--r); background: var(--surface-2); color: var(--text-2);
+  font-size: 12.5px; font-weight: 500; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.lai-pill:hover { background: var(--surface-3); color: var(--text); }
+.lai-pill .spinner { color: var(--accent); }
+.lai-pill.error { background: var(--danger-soft); color: var(--danger); }
+.lai-pill-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lai-pill-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--accent); transform-origin: left; transition: transform 0.35s var(--ease); }
+
+@media (max-width: 560px) {
+  .lai-plan-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .lai-step-meta { display: none; }
+  .lai-head .badge { display: none; }
+}
+
 .command { display: flex; align-items: center; gap: 4px; margin-top: 4px; width: fit-content; padding: 2px 2px 2px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .command code { color: var(--text); user-select: all; }
 

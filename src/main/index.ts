@@ -35,6 +35,7 @@ import { handleMediaRequests, registerMediaScheme } from './media'
 import { registerMini } from './mini'
 import { checkKey } from './keycheck'
 import { ollamaStatus } from './ollama'
+import { assertLocalAiReady, registerLocalAi } from './local-ai-ipc'
 import * as store from './store'
 import { buildMeetingDocument, suggestSpeakerNames, summarize, transcriptText } from './summarize'
 import { registerWindowControls, watchMaximize } from './titlebar'
@@ -421,7 +422,9 @@ function registerIpc(): void {
   ipcMain.handle('speaker:suggest', async (_e, meetingId: string) => {
     const m = store.getMeeting(meetingId)
     if (!m) throw new Error('Reunión no encontrada')
-    return withLlmErrors(() => suggestSpeakerNames(m, loadSettings()))
+    const s = loadSettings()
+    assertLocalAiReady(s)
+    return withLlmErrors(() => suggestSpeakerNames(m, s))
   })
 
   // grabación
@@ -474,8 +477,10 @@ function registerIpc(): void {
   ipcMain.handle('summary:generate', async (_e, id: string, promptId: string) => {
     const m = store.getMeeting(id)
     if (!m) throw new Error('Reunión no encontrada')
+    const settings = loadSettings()
+    assertLocalAiReady(settings)
     const summary = await withLlmErrors(() =>
-      summarize(m, loadSettings(), promptId, (delta) => emit('summary:delta', { meetingId: id, delta }))
+      summarize(m, settings, promptId, (delta) => emit('summary:delta', { meetingId: id, delta }))
     )
     mutate(id, (x) => {
       x.summary = summary
@@ -494,6 +499,7 @@ app.whenReady().then(() => {
   if (!primary) return
   store.initStore()
   registerIpc()
+  registerLocalAi(emit)
   registerWindowControls()
   registerMini(() => win, icon)
   handleMediaRequests()

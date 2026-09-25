@@ -8,6 +8,8 @@ import type {
   MeetingSummary,
   KeyCheck,
   KeySource,
+  LocalAiDetection,
+  LocalAiState,
   OllamaStatus,
   RecordingTrack,
   ScreenSource,
@@ -35,6 +37,14 @@ const api = {
   getDefaults: (): Promise<{ prompts: PromptTemplate[]; speakerIdPrompt: string }> =>
     invoke('settings:defaults'),
   ollamaStatus: (url: string): Promise<OllamaStatus> => invoke('ollama:status', url),
+  // IA local con un clic (Ollama + Qwen): el proceso principal hace el trabajo y difunde el estado.
+  localAiState: (): Promise<LocalAiState> => invoke('localAi:get'),
+  localAiDetect: (): Promise<LocalAiDetection> => invoke('localAi:detect'),
+  startLocalAi: (opts?: { model?: string }): Promise<void> => invoke('localAi:start', opts),
+  cancelLocalAi: (): Promise<void> => invoke('localAi:cancel'),
+  onLocalAiState: (cb: (s: LocalAiState) => void) => subscribe('localAi:state', cb),
+  /** Cambios de configuración hechos desde el proceso principal (p. ej. al terminar de activar la IA local). */
+  onSettingsPatched: (cb: (patch: Partial<Settings>) => void) => subscribe('settings:patched', cb),
   /** Comprueba la key contra el proveedor (desde el proceso principal). */
   keySources: (): Promise<Partial<Record<keyof ApiKeys, KeySource>>> => invoke('keys:sources'),
   checkKey: (provider: keyof ApiKeys, key: string): Promise<KeyCheck> => invoke('keys:check', provider, key),
