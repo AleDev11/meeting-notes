@@ -1,6 +1,6 @@
 import { readFile } from 'fs/promises'
 import { request } from './http'
-import type { BatchOptions, RawSegment } from './types'
+import { isMultilingual, langCode, PAUSE_SPLIT, type BatchOptions, type RawSegment } from './types'
 
 const API = 'https://api.assemblyai.com/v2'
 
@@ -13,10 +13,18 @@ export async function assemblyAiBatch(o: BatchOptions): Promise<RawSegment[]> {
     body: await readFile(o.audioFile)
   })
 
-  const body: Record<string, unknown> = { audio_url: upload_url, speaker_labels: true }
-  if (o.language) body.language_code = o.language
-  else body.language_detection = true
-  if (o.expectedSpeakers) body.speakers_expected = o.expectedSpeakers
+  const body: Record<string, unknown> = { audio_url: upload_url, speaker_labels: o.diarize }
+  if (isMultilingual(o.language)) {
+    body.language_detection = true
+    body.language_detection_options = { code_switching: true }
+  } else {
+    body.language_code = o.language
+    // El catalán solo lo reconoce universal-2.
+    if (o.language === 'ca') body.speech_models = ['universal-2']
+  }
+  if (o.diarize && o.expectedSpeakers) body.speakers_expected = o.expectedSpeakers
+  // Con universal-2 (el modelo del catalán) solo se admite vocabulario en inglés.
+  if (o.keyterms.length && o.language !== 'ca') body.keyterms_prompt = o.keyterms.slice(0, 200)
 
   const { id } = await request<{ id: string }>(`${API}/transcript`, {
     method: 'POST',
@@ -29,15 +37,31 @@ export async function assemblyAiBatch(o: BatchOptions): Promise<RawSegment[]> {
     const t = await request<{
       status: 'queued' | 'processing' | 'completed' | 'error'
       error?: string
-      utterances?: { speaker: string; text: string; start: number; end: number }[]
+      language_code?: string
+      words?: { text: string; start: number; end: number }[]
+      utterances?: { speaker: string; text: string; start: number; end: number }[] | null
     }>(`${API}/transcript/${id}`, { headers })
     if (t.status === 'error') throw new Error(`AssemblyAI: ${t.error}`)
     if (t.status === 'completed') {
-      return (t.utterances ?? []).map((u) => ({
+      const lang = langCode(t.language_code)
+      if (!o.diarize || !t.utterances) {
+        const out: RawSegment[] = []
+        for (const w of t.words ?? []) {
+          const last = out[out.length - 1]
+          const start = w.start / 1000
+          if (last && start - last.end < PAUSE_SPLIT) {
+            last.text += ' ' + w.text
+            last.end = w.end / 1000
+          } else out.push({ speaker: null, text: w.text, start, end: w.end / 1000, lang })
+        }
+        return out
+      }
+      return t.utterances.map((u) => ({
         speaker: u.speaker,
         text: u.text,
         start: u.start / 1000,
-        end: u.end / 1000
+        end: u.end / 1000,
+        lang
       }))
     }
   }

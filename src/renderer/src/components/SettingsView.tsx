@@ -14,6 +14,7 @@ import {
   KeyRound,
   Mic,
   Plus,
+  Power,
   RefreshCw,
   RotateCcw,
   SlidersHorizontal,
@@ -31,6 +32,7 @@ import type {
 import { AnimatePresence, motion } from 'motion/react'
 import { fadeUp, Field, Spinner, spring, Toggle, useUi } from './ui'
 import { CostEstimate } from './CostEstimate'
+import { ComboInput, Select } from './Select'
 import { knownModels, llmPrice } from '@shared/pricing'
 
 type Tab = 'general' | 'audio' | 'transcription' | 'ai' | 'prompts' | 'keys'
@@ -45,15 +47,25 @@ const TABS: { id: Tab; label: string; icon: React.JSX.Element }[] = [
 ]
 
 const LANGUAGES = [
+  ['multi', 'Varios idiomas (detecta cada cambio)'],
   ['es', 'Español'],
   ['en', 'Inglés'],
   ['ca', 'Catalán'],
   ['pt', 'Portugués'],
   ['fr', 'Francés'],
   ['de', 'Alemán'],
-  ['it', 'Italiano'],
-  ['', 'Detectar automáticamente']
+  ['it', 'Italiano']
 ]
+
+function languageHint(s: Settings): string {
+  if (s.language !== 'multi') {
+    return 'Fijar el idioma da la máxima precisión si toda la reunión es en ese idioma.'
+  }
+  const catalanLive = s.liveProvider === 'deepgram'
+    ? ' En directo, Deepgram no reconoce el catalán cuando se mezcla con otros idiomas; la pasada final con ElevenLabs sí.'
+    : ''
+  return `Para reuniones en las que se cambia de idioma sobre la marcha (español, inglés, catalán…). Cada fragmento se transcribe en el idioma en que se dice.${catalanLive}`
+}
 
 const LIVE: { id: LiveProvider; name: string; desc: string; key?: keyof ApiKeys; tag?: string }[] = [
   {
@@ -61,13 +73,13 @@ const LIVE: { id: LiveProvider; name: string; desc: string; key?: keyof ApiKeys;
     name: 'Deepgram',
     key: 'deepgram',
     tag: 'Recomendado',
-    desc: 'Separa a las personas en directo (Persona 1, 2, 3…) mientras hablan. Puedes nombrarlas durante la reunión.'
+    desc: 'Separa a las personas en directo (Persona 1, 2, 3…) mientras hablan. Mezcla español, inglés y otros idiomas, pero no reconoce el catalán en ese modo.'
   },
   {
     id: 'elevenlabs',
     name: 'ElevenLabs',
     key: 'elevenlabs',
-    desc: 'Transcripción en vivo muy precisa, pero sin separar voces: el audio del sistema aparece como “Participantes” hasta la pasada final.'
+    desc: 'Transcripción en vivo muy precisa y con catalán, pero sin separar voces: el audio de la reunión aparece como “Participantes” hasta la pasada final.'
   },
   { id: 'none', name: 'Sin transcripción en vivo', desc: 'Solo se graba; la transcripción aparece al terminar.' }
 ]
@@ -78,7 +90,7 @@ const FINAL: { id: FinalProvider; name: string; desc: string; key?: keyof ApiKey
     name: 'ElevenLabs Scribe v2',
     key: 'elevenlabs',
     tag: 'Recomendado',
-    desc: 'Muy buena separación de hablantes (hasta 32) y precisión en español.'
+    desc: 'La mejor separación de hablantes (hasta 32) y detecta el idioma de cada parte, catalán incluido.'
   },
   {
     id: 'assemblyai',
@@ -148,7 +160,7 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
   const [s, setS] = useState(settings)
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved'>('idle')
   const timer = useRef<number>(0)
-  const [info, setInfo] = useState<{ version: string; libraryDir: string } | null>(null)
+  const [info, setInfo] = useState<{ version: string; packaged: boolean; libraryDir: string } | null>(null)
 
   useEffect(() => {
     void window.api.appInfo().then(setInfo)
@@ -196,14 +208,12 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                 <Field label="Tu nombre" hint="Se usa para etiquetar tu voz (micrófono) en la transcripción y en los resúmenes.">
                   <input value={s.myName} placeholder="Yo" onChange={(e) => set({ myName: e.target.value })} />
                 </Field>
-                <Field label="Idioma de las reuniones" hint="Fijar el idioma mejora la precisión. Usa detección automática si mezclas idiomas.">
-                  <select value={s.language} onChange={(e) => set({ language: e.target.value })}>
-                    {LANGUAGES.map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
+                <Field label="Idioma de las reuniones" hint={languageHint(s)}>
+                  <Select
+                    value={s.language}
+                    options={LANGUAGES.map(([value, label]) => ({ value, label }))}
+                    onChange={(language) => set({ language })}
+                  />
                 </Field>
               </section>
               <section className="card">
@@ -222,6 +232,37 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                     </span>
                   ))}
                 </div>
+              </section>
+              <section className="card">
+                <h2>
+                  <Power size={16} /> Inicio y segundo plano
+                </h2>
+                <Toggle
+                  checked={s.openAtLogin}
+                  onChange={(v) => set({ openAtLogin: v })}
+                  label="Iniciar con Windows"
+                  description={
+                    info && !info.packaged
+                      ? 'Solo funciona en la versión instalada.'
+                      : 'Se abre al encender el ordenador, sin mostrar la ventana: queda en la bandeja del sistema, lista para grabar.'
+                  }
+                />
+                <Toggle
+                  checked={s.minimizeToTray}
+                  onChange={(v) => set({ minimizeToTray: v })}
+                  label="Minimizar a la bandeja del sistema"
+                  description="Al minimizar, la ventana desaparece de la barra de tareas y la app sigue junto al reloj. La grabación continúa."
+                />
+                <Toggle
+                  checked={s.closeToTray}
+                  onChange={(v) => set({ closeToTray: v })}
+                  label="Seguir en segundo plano al cerrar"
+                  description="La X oculta la ventana en lugar de salir. Para salir del todo, usa Salir en el icono de la bandeja."
+                />
+                <p className="muted small">
+                  Desde el icono de la bandeja y con clic derecho en el icono de la barra de tareas puedes crear una reunión
+                  y empezar a grabar sin abrir la ventana.
+                </p>
               </section>
               <section className="card">
                 <h2>
@@ -261,7 +302,7 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
               </section>
               <section className="card">
                 <h2>Ajustes de hablantes</h2>
-                <Field label="Número de personas esperado" hint="Déjalo vacío para que se detecte solo. Indicarlo mejora la separación cuando lo sabes.">
+                <Field label="Personas en la reunión, contándote a ti" hint="Déjalo vacío para que se detecte solo. Indicarlo mejora mucho la separación cuando lo sabes.">
                   <input
                     type="number"
                     min={1}
@@ -270,6 +311,12 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                     value={s.expectedSpeakers ?? ''}
                     onChange={(e) => set({ expectedSpeakers: e.target.value ? Number(e.target.value) : null })}
                   />
+                </Field>
+                <Field
+                  label="Vocabulario"
+                  hint="Nombres propios, productos, siglas o términos técnicos que se dicen en tus reuniones, separados por comas. También se usan los nombres de las personas conocidas."
+                >
+                  <VocabularyInput value={s.vocabulary} onChange={(vocabulary) => set({ vocabulary })} />
                 </Field>
                 <Field label="Modelo de Deepgram">
                   <input value={s.deepgramModel} onChange={(e) => set({ deepgramModel: e.target.value })} />
@@ -299,19 +346,13 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
               </div>
               {s.llmProvider === 'anthropic' ? (
                 <Field label="Modelo de Claude" hint={modelHint(s.anthropicModel)}>
-                  <input list="models-anthropic" value={s.anthropicModel} onChange={(e) => set({ anthropicModel: e.target.value })} />
+                  <ComboInput value={s.anthropicModel} suggestions={knownModels('claude')} onChange={(anthropicModel) => set({ anthropicModel })} />
                 </Field>
               ) : (
                 <Field label="Modelo de OpenAI" hint={modelHint(s.openaiModel)}>
-                  <input list="models-openai" value={s.openaiModel} onChange={(e) => set({ openaiModel: e.target.value })} />
+                  <ComboInput value={s.openaiModel} suggestions={knownModels('gpt')} onChange={(openaiModel) => set({ openaiModel })} />
                 </Field>
               )}
-              <datalist id="models-anthropic">
-                {knownModels('claude').map((m) => <option key={m} value={m} />)}
-              </datalist>
-              <datalist id="models-openai">
-                {knownModels('gpt').map((m) => <option key={m} value={m} />)}
-              </datalist>
               {!s.keys[s.llmProvider] && (
                 <p className="warn small">
                   Falta la API key de {s.llmProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'}.{' '}
@@ -394,6 +435,26 @@ function UpdateCard({
         )}
       </div>
     </section>
+  )
+}
+
+/** Lista separada por comas; se normaliza al salir del campo para no molestar al escribir. */
+function VocabularyInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }): React.JSX.Element {
+  const [text, setText] = useState(value.join(', '))
+  const commit = (): void => {
+    const terms = [...new Set(text.split(/[,\n]/).map((t) => t.trim()).filter(Boolean))]
+    setText(terms.join(', '))
+    if (terms.join('|') !== value.join('|')) onChange(terms)
+  }
+  return (
+    <textarea
+      className="vocab"
+      rows={3}
+      value={text}
+      placeholder="Kubernetes, Acme, OKR, Núria…"
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+    />
   )
 }
 
@@ -637,14 +698,16 @@ function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) =>
       <section className="card">
         <h2>Micrófono</h2>
         <Field label="Dispositivo de entrada">
-          <select value={s.micDeviceId} onChange={(e) => set({ micDeviceId: e.target.value })}>
-            <option value="">Predeterminado del sistema</option>
-            {devices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || 'Micrófono'}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={s.micDeviceId}
+            options={[
+              { value: '', label: 'Predeterminado del sistema' },
+              ...devices
+                .filter((d) => d.deviceId !== 'default')
+                .map((d) => ({ value: d.deviceId, label: d.label || 'Micrófono' }))
+            ]}
+            onChange={(micDeviceId) => set({ micDeviceId })}
+          />
         </Field>
         <div className="mic-test">
           <button className="btn sm" onClick={() => void test()}>

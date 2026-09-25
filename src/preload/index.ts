@@ -8,6 +8,8 @@ import type {
   PromptTemplate,
   Settings,
   SpeakerSuggestion,
+  MiniCommand,
+  MiniState,
   SummaryEvent,
   UpdateState
 } from '../shared/types'
@@ -25,7 +27,9 @@ const api = {
   saveSettings: (s: Settings): Promise<void> => invoke('settings:save', s),
   getDefaults: (): Promise<{ prompts: PromptTemplate[]; speakerIdPrompt: string }> =>
     invoke('settings:defaults'),
-  appInfo: (): Promise<{ version: string; libraryDir: string }> => invoke('app:info'),
+  appInfo: (): Promise<{ version: string; packaged: boolean; libraryDir: string }> => invoke('app:info'),
+  publishRecordingState: (s: { recording: boolean; paused: boolean }): void => ipcRenderer.send('recording:state', s),
+  quitApp: (): Promise<void> => invoke('app:quit'),
 
   listLibrary: (): Promise<{ folders: Folder[]; meetings: MeetingSummary[] }> =>
     invoke('library:list'),
@@ -70,8 +74,8 @@ const api = {
     invoke('recording:start', meetingId, channels),
   sendPcm: (channel: AudioChannel, chunk: Uint8Array): void =>
     ipcRenderer.send('recording:pcm', channel, chunk),
-  sendWebm: (meetingId: string, chunk: Uint8Array): void =>
-    ipcRenderer.send('recording:webm', meetingId, chunk),
+  sendWebm: (meetingId: string, track: AudioChannel, chunk: Uint8Array): void =>
+    ipcRenderer.send('recording:webm', meetingId, track, chunk),
   stopRecording: (meetingId: string, durationSec: number): Promise<void> =>
     invoke('recording:stop', meetingId, durationSec),
 
@@ -81,7 +85,16 @@ const api = {
   onLiveEvent: (cb: (e: LiveEvent) => void) => subscribe('live:event', cb),
   onMeetingUpdated: (cb: (m: Meeting) => void) => subscribe('meeting:updated', cb),
   onSummaryDelta: (cb: (e: SummaryEvent) => void) => subscribe('summary:delta', cb),
-  onUpdateState: (cb: (s: UpdateState) => void) => subscribe('update:state', cb)
+  onUpdateState: (cb: (s: UpdateState) => void) => subscribe('update:state', cb),
+
+  openMini: (): Promise<void> => invoke('mini:open'),
+  closeMini: (): Promise<void> => invoke('mini:close'),
+  publishMiniState: (s: MiniState): void => ipcRenderer.send('mini:state', s),
+  getMiniState: (): Promise<MiniState | null> => invoke('mini:state'),
+  sendMiniCommand: (cmd: MiniCommand): void => ipcRenderer.send('mini:command', cmd),
+  onMiniState: (cb: (s: MiniState) => void) => subscribe('mini:state', cb),
+  onMiniCommand: (cb: (cmd: MiniCommand) => void) => subscribe('mini:command', cb),
+  onMiniClosed: (cb: () => void) => subscribe('mini:closed', cb)
 }
 
 export type Api = typeof api

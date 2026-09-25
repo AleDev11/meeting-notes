@@ -5,6 +5,8 @@ export interface RawSegment {
   text: string
   start: number
   end: number
+  /** Idioma detectado, si el proveedor lo indica. */
+  lang?: string
 }
 
 export interface LiveCallbacks {
@@ -20,13 +22,53 @@ export interface LiveSession {
   stop(): void
 }
 
+export interface LiveOptions {
+  apiKey: string
+  language: string
+  diarize: boolean
+  keyterms: string[]
+  model?: string
+}
+
 export interface BatchOptions {
   apiKey: string
   audioFile: string
   language: string
+  diarize: boolean
   expectedSpeakers: number | null
+  keyterms: string[]
   model?: string
 }
 
 export const SAMPLE_RATE = 16000
 export const BYTES_PER_SECOND = SAMPLE_RATE * 2
+
+const ISO3: Record<string, string> = {
+  spa: 'es',
+  eng: 'en',
+  cat: 'ca',
+  por: 'pt',
+  fra: 'fr',
+  fre: 'fr',
+  deu: 'de',
+  ger: 'de',
+  ita: 'it',
+  nld: 'nl',
+  dut: 'nl',
+  glg: 'gl',
+  eus: 'eu',
+  baq: 'eu'
+}
+
+/** Código de idioma de dos letras a partir de "es", "es-ES" o "spa". */
+export function langCode(code: string | undefined): string | undefined {
+  if (!code) return undefined
+  const base = code.toLowerCase().split(/[-_]/)[0]
+  return base.length === 3 ? ISO3[base] : base
+}
+
+/** true si la reunión puede cambiar de idioma: el proveedor debe detectarlo. */
+export const isMultilingual = (language: string): boolean => !language || language === 'multi'
+
+/** Segundos de silencio a partir de los que un mismo hablante empieza fragmento nuevo. */
+export const PAUSE_SPLIT = 1.2

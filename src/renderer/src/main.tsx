@@ -4,12 +4,13 @@ import { MotionConfig } from 'motion/react'
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import App from './App'
+import MiniApp from './MiniApp'
 import './styles.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MotionConfig reducedMotion="user" transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}>
-      <App />
+      {location.hash === '#mini' ? <MiniApp /> : <App />}
     </MotionConfig>
   </StrictMode>
 )

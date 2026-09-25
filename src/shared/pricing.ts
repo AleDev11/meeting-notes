@@ -53,13 +53,15 @@ export interface CostEstimate {
   unknownModel: string | null
 }
 
+const multilingual = (s: Settings): boolean => !s.language || s.language === 'multi'
+
 function liveCost(s: Settings): Omit<CostLine, 'key' | 'label'> {
   // Con el micro aparte hay dos transcripciones en vivo: micro (sin separar voces) y sistema (separando).
   const streams = s.separateMic ? [{ diarize: false }, { diarize: true }] : [{ diarize: true }]
   const n = streams.length === 2 ? '2 transcripciones simultáneas (tu micro y la llamada)' : '1 transcripción (audio mezclado)'
   switch (s.liveProvider) {
     case 'deepgram': {
-      const base = s.language ? DEEPGRAM.streamingMono : DEEPGRAM.streamingMulti
+      const base = multilingual(s) ? DEEPGRAM.streamingMulti : DEEPGRAM.streamingMono
       const perMin = streams.reduce((t, st) => t + base + (st.diarize ? DEEPGRAM.streamingDiarize : 0), 0)
       return { perHour: perMin * 60, detail: `Deepgram · ${n}` }
     }
@@ -71,15 +73,21 @@ function liveCost(s: Settings): Omit<CostLine, 'key' | 'label'> {
 }
 
 function finalCost(s: Settings): Omit<CostLine, 'key' | 'label'> {
+  // Con el micro aparte se procesan dos pistas: la tuya (sin separar voces) y la de la llamada.
+  const tracks = s.separateMic ? 2 : 1
+  const n = tracks === 2 ? ' · 2 pistas (tu micro y la llamada)' : ''
   switch (s.finalProvider) {
     case 'elevenlabs':
-      return { perHour: ELEVENLABS.batchPerHour, detail: 'ElevenLabs Scribe v2 · separación de hablantes incluida' }
+      return { perHour: ELEVENLABS.batchPerHour * tracks, detail: `ElevenLabs Scribe v2${n}` }
     case 'assemblyai':
-      return { perHour: ASSEMBLYAI.batchPerHour + ASSEMBLYAI.diarizePerHour, detail: 'AssemblyAI · incluye separación de hablantes' }
+      return {
+        perHour: ASSEMBLYAI.batchPerHour * tracks + ASSEMBLYAI.diarizePerHour,
+        detail: `AssemblyAI${n}`
+      }
     case 'deepgram':
       return {
-        perHour: (s.language ? DEEPGRAM.batchMono : DEEPGRAM.batchMulti) * 60,
-        detail: 'Deepgram Nova-3 · separación de hablantes incluida'
+        perHour: (multilingual(s) ? DEEPGRAM.batchMulti : DEEPGRAM.batchMono) * 60 * tracks,
+        detail: `Deepgram Nova-3${n}`
       }
     default:
       return { perHour: 0, detail: 'Desactivada' }

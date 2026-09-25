@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import type { Folder, MeetingSummary } from '@shared/types'
 import { fmtDate, fmtDuration } from '../util'
+import { Select } from './Select'
 import { Logo, MenuItem, Popover, quick, soft } from './ui'
 
 export type SortMode = 'manual' | 'recent' | 'name'
@@ -296,11 +297,18 @@ export function Sidebar(p: Props): React.JSX.Element {
 
       <div className="sidebar-section-head">
         <span>Reuniones</span>
-        <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)} title="Ordenar reuniones">
-          <option value="recent">Recientes</option>
-          <option value="name">Nombre</option>
-          <option value="manual">Manual</option>
-        </select>
+        <Select
+          variant="ghost"
+          align="right"
+          value={sortMode}
+          title="Ordenar reuniones"
+          options={[
+            { value: 'recent', label: 'Recientes' },
+            { value: 'name', label: 'Nombre' },
+            { value: 'manual', label: 'Manual' }
+          ]}
+          onChange={setSortMode}
+        />
       </div>
 
       <div

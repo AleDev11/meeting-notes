@@ -1,8 +1,9 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { AlertCircle, ArrowDown, AudioLines, RefreshCw, UserPlus, UserRound } from 'lucide-react'
+import { AlertCircle, ArrowDown, AudioLines, Play, RefreshCw, UserPlus, UserRound } from 'lucide-react'
 import { ME, OTHERS, speakerLabel, type Meeting, type TranscriptSegment } from '@shared/types'
 import { fmtTime, speakerColor } from '../util'
+import { AudioPlayer, type PlayerHandle } from './AudioPlayer'
 import { Avatar } from './SpeakersBar'
 import { Popover, soft, Spinner } from './ui'
 
@@ -42,9 +43,24 @@ function toTurns(segments: TranscriptSegment[]): Turn[] {
   return turns
 }
 
+/** Idioma más frecuente de la reunión y si se ha hablado en más de uno. */
+function languages(segments: TranscriptSegment[]): { main?: string; mixed: boolean } {
+  const count = new Map<string, number>()
+  for (const s of segments) if (s.lang) count.set(s.lang, (count.get(s.lang) ?? 0) + (s.end - s.start))
+  const main = [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+  return { main, mixed: count.size > 1 }
+}
+
 export function TranscriptView(p: Props): React.JSX.Element {
   const m = p.meeting
   const turns = useMemo(() => toTurns(m.transcript), [m.transcript])
+  const langs = useMemo(() => languages(m.transcript), [m.transcript])
+  const player = useRef<PlayerHandle>(null)
+  const [playTime, setPlayTime] = useState<number | null>(null)
+  const onTime = useCallback((t: number | null) => setPlayTime(t), [])
+  const activeId =
+    playTime === null ? null : (m.transcript.find((s) => playTime >= s.start && playTime < s.end + 0.3)?.id ?? null)
+  const canPlay = m.hasAudio && !p.recording
   const scroller = useRef<HTMLDivElement>(null)
   const [stick, setStick] = useState(true)
   const [menu, setMenu] = useState<string | null>(null)
@@ -55,6 +71,11 @@ export function TranscriptView(p: Props): React.JSX.Element {
     const el = scroller.current
     if (stick && el) el.scrollTo({ top: el.scrollHeight, behavior: p.recording ? 'smooth' : 'auto' })
   }, [turns, p.partials, stick, p.recording])
+
+  // Mientras se escucha, la transcripción acompaña al audio.
+  useEffect(() => {
+    if (activeId) scroller.current?.querySelector('.seg.playing')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [activeId])
 
   const onScroll = (): void => {
     const el = scroller.current
@@ -67,7 +88,7 @@ export function TranscriptView(p: Props): React.JSX.Element {
   const empty = turns.length === 0 && livePartials.length === 0
 
   return (
-    <div className="transcript">
+    <div className={`transcript ${canPlay ? 'has-player' : ''}`}>
       <AnimatePresence>
         {m.status === 'processing' && (
           <motion.div className="banner" {...bannerMotion}>
@@ -166,7 +187,16 @@ export function TranscriptView(p: Props): React.JSX.Element {
                             </button>
                           </Popover>
                         </span>
-                        <span className="turn-time">{fmtTime(t.start)}</span>
+                        {canPlay ? (
+                          <button className="turn-time seek" onClick={() => player.current?.playFrom(t.start)} title="Escuchar desde aquí">
+                            <Play size={9} fill="currentColor" /> {fmtTime(t.start)}
+                          </button>
+                        ) : (
+                          <span className="turn-time">{fmtTime(t.start)}</span>
+                        )}
+                        {langs.mixed && t.segments[0].lang && t.segments[0].lang !== langs.main && (
+                          <span className="lang-tag" title="Idioma detectado">{t.segments[0].lang.toUpperCase()}</span>
+                        )}
                       </div>
                       <div className="turn-text">
                         {t.segments.map((s) =>
@@ -192,12 +222,12 @@ export function TranscriptView(p: Props): React.JSX.Element {
                           ) : (
                             <span
                               key={s.id}
-                              className="seg"
+                              className={`seg ${s.id === activeId ? 'playing' : ''}`}
                               onDoubleClick={() => {
                                 setEditing(s.id)
                                 setDraft(s.text)
                               }}
-                              title="Doble clic para corregir"
+                              title="Doble clic para corregir el texto"
                             >
                               {s.text}{' '}
                             </span>
@@ -231,6 +261,16 @@ export function TranscriptView(p: Props): React.JSX.Element {
           </div>
         )}
       </div>
+
+      {canPlay && (
+        <AudioPlayer
+          key={m.id}
+          ref={player}
+          src={`meeting-audio://${m.id}/?v=${m.durationSec}`}
+          duration={m.durationSec}
+          onTime={onTime}
+        />
+      )}
 
       <AnimatePresence>
         {!stick && !empty && (

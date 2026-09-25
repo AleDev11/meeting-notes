@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, KeyRound, PanelLeftOpen, Plus } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import type { AudioChannel, Folder, Meeting, MeetingSummary, Settings, UpdateState } from '@shared/types'
-import { channelsFor, MeetingRecorder, type Levels } from './audio/recorder'
+import {
+  speakerLabel,
+  type AppAction,
+  type AudioChannel,
+  type Folder,
+  type Meeting,
+  type MeetingSummary,
+  type MiniCommand,
+  type MiniLine,
+  type Settings,
+  type SourceState,
+  type UpdateState
+} from '@shared/types'
+import { channelsFor, MeetingRecorder, type Levels, type Source } from './audio/recorder'
 import { MeetingView } from './components/MeetingView'
 import { SettingsView } from './components/SettingsView'
 import { Sidebar } from './components/Sidebar'
@@ -15,7 +27,7 @@ const page = {
   exit: { opacity: 0, y: -6 },
   transition: { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const }
 }
-import { errorMessage } from './util'
+import { errorMessage, speakerColor } from './util'
 
 type Editable = Pick<Meeting, 'title' | 'sections' | 'summary'>
 
@@ -41,6 +53,9 @@ function Shell(): React.JSX.Element {
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const [muted, setMuted] = useState<Record<Source, boolean>>({ mic: false, system: false })
+  const [miniOpen, setMiniOpen] = useState(false)
   const [levels, setLevels] = useState<Levels>({})
   const [partials, setPartials] = useState<Partial<Record<AudioChannel, LivePartial>>>({})
   const [captureMic, setCaptureMic] = useState(true)
@@ -119,9 +134,8 @@ function Shell(): React.JSX.Element {
 
   useEffect(() => {
     if (!recordingId) return
-    const started = Date.now()
     setElapsed(0)
-    const t = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000)
+    const t = setInterval(() => setElapsed(recorder.current?.elapsed ?? 0), 500)
     return () => clearInterval(t)
   }, [recordingId])
 
@@ -258,8 +272,8 @@ function Shell(): React.JSX.Element {
     return out
   }
 
-  const startRecording = async (): Promise<void> => {
-    const m = meetingRef.current
+  const startRecording = async (target?: Meeting): Promise<void> => {
+    const m = target ?? meetingRef.current
     if (!m || !settings || recordingId) return
     const missing = missingKeys(settings)
     if (missing.length) {
@@ -302,6 +316,8 @@ function Shell(): React.JSX.Element {
         throw e
       }
       recorder.current = rec
+      setPaused(false)
+      setMuted({ mic: false, system: false })
       setRecordingId(m.id)
       setPartials({})
     })
@@ -315,10 +331,114 @@ function Shell(): React.JSX.Element {
       const duration = await recorder.current.stop()
       recorder.current = null
       setRecordingId(null)
+      setPaused(false)
       setPartials({})
       setLevels({})
+      if (miniOpen) await window.api.closeMini()
       await window.api.stopRecording(id, duration)
     })
+
+  const togglePause = (): void => {
+    const rec = recorder.current
+    if (!rec) return
+    if (paused) rec.resume()
+    else rec.pause()
+    setPaused(!paused)
+    if (!paused) setPartials({})
+  }
+
+  const toggleMute = (source: Source): void => {
+    const rec = recorder.current
+    if (!rec) return
+    rec.setMuted(source, !muted[source])
+    setMuted({ ...muted, [source]: !muted[source] })
+  }
+
+  const openMini = async (): Promise<void> => {
+    // La ventana mini muestra la reunión que se está grabando.
+    if (recordingId && meetingRef.current?.id !== recordingId) await openMeeting(recordingId)
+    setMiniOpen(true)
+    await window.api.openMini()
+  }
+
+  // Acciones rápidas desde la bandeja del sistema o el icono de la barra de tareas.
+  const appActions = useRef<(a: AppAction) => Promise<void>>(async () => {})
+  appActions.current = async (action) => {
+    if (action === 'new-meeting') return newMeeting(null)
+    if (action === 'record') {
+      if (recordingId) return openMeeting(recordingId)
+      await flushSave()
+      const m = await window.api.createMeeting(null)
+      await refreshLibrary()
+      setMeeting(m)
+      setView('meeting')
+      return startRecording(m)
+    }
+    if (action === 'stop') return stopRecording()
+    if (action === 'pause') return togglePause()
+    if (action === 'mini') return openMini()
+    if (action === 'stop-and-quit') {
+      await stopRecording()
+      await window.api.quitApp()
+    }
+  }
+  useEffect(() => {
+    const w = window as Window & { __appAction?: (a: AppAction) => void }
+    w.__appAction = (a) => void appActions.current(a)
+    return () => {
+      delete w.__appAction
+    }
+  }, [])
+
+  useEffect(() => {
+    window.api.publishRecordingState({ recording: !!recordingId, paused })
+  }, [recordingId, paused])
+
+  // Órdenes que llegan desde la ventana mini.
+  const miniHandlers = useRef<(cmd: MiniCommand) => void>(() => {})
+  miniHandlers.current = (cmd) => {
+    if (cmd === 'pause' || cmd === 'resume') togglePause()
+    else if (cmd === 'toggleMic') toggleMute('mic')
+    else if (cmd === 'toggleSystem') toggleMute('system')
+    else if (cmd === 'stop') void stopRecording()
+  }
+  useEffect(() => {
+    const offCommand = window.api.onMiniCommand((cmd) => miniHandlers.current(cmd))
+    const offClosed = window.api.onMiniClosed(() => setMiniOpen(false))
+    return () => {
+      offCommand()
+      offClosed()
+    }
+  }, [])
+
+  const recordingMeeting = meeting && meeting.id === recordingId ? meeting : null
+  const sourceState = (source: Source, captured: boolean): SourceState =>
+    !captured ? 'off' : muted[source] ? 'muted' : 'on'
+
+  useEffect(() => {
+    if (!miniOpen || !settings) return
+    const m = recordingMeeting
+    const label = (id: string): string => speakerLabel(m?.speakers[id], settings.myName)
+    const color = (id: string): string => speakerColor(id, m?.speakers[id]?.index ?? 0)
+    const lines: MiniLine[] = (m?.transcript.slice(-8) ?? []).map((s) => ({
+      id: s.id,
+      speaker: label(s.speakerId),
+      color: color(s.speakerId),
+      text: s.text
+    }))
+    for (const [channel, x] of Object.entries(partials)) {
+      if (x?.text) lines.push({ id: `partial-${channel}`, speaker: x.speakerId ? label(x.speakerId) : 'Hablando', color: color(x.speakerId), text: x.text, partial: true })
+    }
+    window.api.publishMiniState({
+      title: m?.title ?? meetings.find((x) => x.id === recordingId)?.title ?? '',
+      recording: !!recordingId,
+      paused,
+      elapsed,
+      mic: sourceState('mic', captureMic),
+      system: sourceState('system', captureSystem),
+      lines
+    })
+  }, [miniOpen, settings, recordingMeeting, recordingId, meetings, partials, paused, elapsed, muted, captureMic, captureSystem])
 
   const generateSummary = (promptId: string): Promise<void> =>
     run(async () => {
@@ -452,11 +572,17 @@ function Shell(): React.JSX.Element {
             otherRecording={!!recordingId && !isRecordingThis}
             starting={starting}
             elapsed={elapsed}
+            paused={paused}
+            muted={muted}
+            onTogglePause={togglePause}
+            onToggleMute={toggleMute}
+            onOpenMini={() => void openMini()}
             levels={levels}
             captureMic={captureMic}
             captureSystem={captureSystem}
             onCaptureMic={setCaptureMic}
             onCaptureSystem={setCaptureSystem}
+            onMicDevice={(micDeviceId) => void saveSettings({ ...settings, micDeviceId })}
             onStart={() => void startRecording()}
             onStop={() => void stopRecording()}
             partials={isRecordingThis ? Object.values(partials).filter((x): x is LivePartial => !!x) : []}

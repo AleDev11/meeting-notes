@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   AudioLines,
+  ChevronDown,
   Download,
   Mic,
   MicOff,
@@ -10,13 +11,16 @@ import {
   MoreHorizontal,
   NotebookPen,
   PanelLeftOpen,
+  Pause,
+  PictureInPicture2,
+  Play,
   RefreshCw,
   ScrollText,
   Square,
   Trash2
 } from 'lucide-react'
 import type { Meeting, NoteSection, Settings, SpeakerSuggestion } from '@shared/types'
-import type { Levels } from '../audio/recorder'
+import type { Levels, Source } from '../audio/recorder'
 import { fmtDate, fmtDuration, fmtTime } from '../util'
 import { NotesPanel } from './NotesPanel'
 import { SpeakersBar } from './SpeakersBar'
@@ -35,11 +39,17 @@ interface Props {
   otherRecording: boolean
   starting: boolean
   elapsed: number
+  paused: boolean
+  muted: Record<Source, boolean>
+  onTogglePause: () => void
+  onToggleMute: (source: Source) => void
+  onOpenMini: () => void
   levels: Levels
   captureMic: boolean
   captureSystem: boolean
   onCaptureMic: (v: boolean) => void
   onCaptureSystem: (v: boolean) => void
+  onMicDevice: (deviceId: string) => void
   onStart: () => void
   onStop: () => void
   partials: LivePartial[]
@@ -145,22 +155,40 @@ export function MeetingView(p: Props): React.JSX.Element {
           <div className="rec-controls">
             <CaptureToggle
               on={p.captureMic}
-              disabled={p.isRecording}
-              level={p.isRecording ? p.levels.mic : undefined}
+              recording={p.isRecording}
+              muted={p.muted.mic}
+              level={p.isRecording && !p.paused ? p.levels.mic : undefined}
               onIcon={<Mic size={15} />}
               offIcon={<MicOff size={15} />}
               label="Micrófono"
               onChange={p.onCaptureMic}
-            />
+              onToggleMute={() => p.onToggleMute('mic')}
+            >
+              <MicPicker deviceId={p.settings.micDeviceId} recording={p.isRecording} onChange={p.onMicDevice} />
+            </CaptureToggle>
             <CaptureToggle
               on={p.captureSystem}
-              disabled={p.isRecording}
-              level={p.isRecording ? p.levels.system : undefined}
+              recording={p.isRecording}
+              muted={p.muted.system}
+              level={p.isRecording && !p.paused ? p.levels.system : undefined}
               onIcon={<MonitorSpeaker size={15} />}
               offIcon={<MonitorX size={15} />}
-              label="Sistema"
+              label="Reunión"
               onChange={p.onCaptureSystem}
-            />
+              onToggleMute={() => p.onToggleMute('system')}
+            >
+              <SystemInfo />
+            </CaptureToggle>
+            {p.isRecording && (
+              <button
+                className={`icon-btn bordered ${p.paused ? 'is-paused' : ''}`}
+                onClick={p.onTogglePause}
+                title={p.paused ? 'Reanudar la grabación' : 'Pausar la grabación'}
+                aria-label={p.paused ? 'Reanudar' : 'Pausar'}
+              >
+                {p.paused ? <Play size={15} /> : <Pause size={15} />}
+              </button>
+            )}
             <motion.button
               layout
               transition={quick}
@@ -179,7 +207,7 @@ export function MeetingView(p: Props): React.JSX.Element {
                 {p.isRecording ? (
                   <motion.span key="stop" className="rec-btn-inner" {...swap}>
                     <Square size={11} fill="currentColor" />
-                    <span className="timer">{fmtTime(p.elapsed)}</span>
+                    <span className="timer">{p.paused ? 'En pausa' : fmtTime(p.elapsed)}</span>
                   </motion.span>
                 ) : (
                   <motion.span key="rec" className="rec-btn-inner" {...swap}>
@@ -189,6 +217,11 @@ export function MeetingView(p: Props): React.JSX.Element {
                 )}
               </AnimatePresence>
             </motion.button>
+            {p.isRecording && (
+              <button className="icon-btn" onClick={p.onOpenMini} title="Modo mini: ventana flotante con la transcripción" aria-label="Modo mini">
+                <PictureInPicture2 size={16} />
+              </button>
+            )}
             <span className="anchor">
               <button className="icon-btn" onClick={() => setMenu(!menu)} aria-label="Más opciones">
                 <MoreHorizontal size={17} />
@@ -276,26 +309,41 @@ const swap = {
   transition: quick
 }
 
+/**
+ * Antes de grabar elige qué se captura; durante la grabación silencia o reactiva
+ * esa fuente (se sigue grabando silencio para que los tiempos cuadren).
+ */
 function CaptureToggle(p: {
   on: boolean
-  disabled: boolean
+  recording: boolean
+  muted: boolean
   level?: number
   onIcon: React.JSX.Element
   offIcon: React.JSX.Element
   label: string
   onChange: (v: boolean) => void
+  onToggleMute: () => void
+  /** Desplegable asociado (selector de dispositivo o información). */
+  children?: React.ReactNode
 }): React.JSX.Element {
-  const live = p.level !== undefined && p.on
+  const muted = p.recording && p.muted
+  const live = p.level !== undefined && p.on && !muted
+  const title = p.recording
+    ? p.on
+      ? `${p.label}: ${muted ? 'silenciado, pulsa para volver a grabarlo' : 'se graba, pulsa para silenciarlo'}`
+      : `${p.label}: no se captura en esta grabación`
+    : `${p.label}: ${p.on ? 'se captura' : 'no se captura'}`
   return (
+    <span className="capture-group">
     <button
-      className={`capture ${p.on ? 'on' : 'off'} ${live ? 'live' : ''}`}
-      disabled={p.disabled}
-      onClick={() => p.onChange(!p.on)}
-      title={`${p.label}: ${p.on ? 'se captura' : 'no se captura'}`}
-      aria-pressed={p.on}
+      className={`capture ${p.on && !muted ? 'on' : 'off'} ${muted ? 'muted' : ''} ${live ? 'live' : ''}`}
+      disabled={p.recording && !p.on}
+      onClick={() => (p.recording ? p.onToggleMute() : p.onChange(!p.on))}
+      title={title}
+      aria-pressed={p.on && !muted}
     >
-      {p.on ? p.onIcon : p.offIcon}
-      <span className="capture-label">{p.label}</span>
+      {p.on && !muted ? p.onIcon : p.offIcon}
+      <span className="capture-label">{muted ? 'Silenciado' : p.label}</span>
       {live && (
         <span className="bars" aria-hidden>
           {[0.55, 1, 0.75].map((k, i) => (
@@ -304,5 +352,62 @@ function CaptureToggle(p: {
         </span>
       )}
     </button>
+    {p.children}
+    </span>
+  )
+}
+
+/** Desplegable para elegir el micrófono. Se aplica en la siguiente grabación. */
+function MicPicker(p: { deviceId: string; recording: boolean; onChange: (id: string) => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+  useEffect(() => {
+    if (!open) return
+    void navigator.mediaDevices.enumerateDevices().then((list) =>
+      setDevices(list.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications'))
+    )
+  }, [open])
+  const pick = (id: string): void => {
+    setOpen(false)
+    if (id !== p.deviceId) p.onChange(id)
+  }
+  return (
+    <span className="anchor">
+      <button className="capture-more" onClick={() => setOpen(!open)} aria-label="Elegir micrófono" title="Elegir micrófono">
+        <ChevronDown size={13} />
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} align="right" className="pop-devices">
+        <div className="menu-heading">Micrófono</div>
+        <button className={`menu-item ${!p.deviceId ? 'current' : ''}`} onClick={() => pick('')}>
+          <span className="mi-label">Predeterminado del sistema</span>
+        </button>
+        {devices.map((d) => (
+          <button key={d.deviceId} className={`menu-item ${d.deviceId === p.deviceId ? 'current' : ''}`} onClick={() => pick(d.deviceId)}>
+            <span className="mi-label">{d.label || 'Micrófono'}</span>
+          </button>
+        ))}
+        {p.recording && <p className="menu-note">El cambio se aplica en la próxima grabación.</p>}
+      </Popover>
+    </span>
+  )
+}
+
+/** El audio de la reunión es todo lo que suena en el equipo: no hay dispositivo que elegir. */
+function SystemInfo(): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="anchor">
+      <button className="capture-more" onClick={() => setOpen(!open)} aria-label="Qué se captura" title="Qué se captura">
+        <ChevronDown size={13} />
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} align="right" className="pop-devices">
+        <div className="menu-heading">Audio de la reunión</div>
+        <p className="menu-note">
+          Se graba todo lo que suena en el equipo por la salida de audio de Windows: Teams, Meet, Zoom, el navegador… Para
+          cambiar el dispositivo, cambia la salida de sonido en Windows. Silencia otras aplicaciones durante la reunión para
+          que no se cuelen en la grabación.
+        </p>
+      </Popover>
+    </span>
   )
 }

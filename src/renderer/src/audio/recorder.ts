@@ -16,18 +16,24 @@ export function channelsFor(p: Pick<CapturePlan, 'mic' | 'system' | 'separate'>)
 }
 
 export type Levels = Partial<Record<'mic' | 'system', number>>
+export type Source = 'mic' | 'system'
 
 /**
  * Captura micrófono y/o audio del sistema (cualquier app: Teams, Meet, Discord, Zoom...).
  *  - Envía PCM16 16 kHz por canal al proceso principal para la transcripción en vivo.
- *  - Graba la mezcla en WebM/Opus para la transcripción final con hablantes.
+ *  - Graba la mezcla en WebM/Opus para escucharla después y, si se separan las fuentes,
+ *    también cada fuente por su lado para que la pasada final no tenga que adivinar
+ *    qué voz es la tuya.
  */
 export class MeetingRecorder {
   private ctx: AudioContext | null = null
   private streams: MediaStream[] = []
-  private recorder: MediaRecorder | null = null
-  private startedAt = 0
+  private sources: Partial<Record<Source, MediaStream>> = {}
+  private recorders: MediaRecorder[] = []
   private levels: Levels = {}
+  private paused = false
+  private activeMs = 0
+  private resumedAt = 0
 
   constructor(private onLevels?: (l: Levels) => void) {}
 
@@ -47,6 +53,7 @@ export class MeetingRecorder {
         throw new Error('No se pudo capturar el audio del sistema.')
       }
       systemStream = display
+      this.sources.system = display
     }
     if (p.mic) {
       micStream = await navigator.mediaDevices.getUserMedia({
@@ -58,6 +65,7 @@ export class MeetingRecorder {
         }
       })
       this.streams.push(micStream)
+      this.sources.mic = micStream
     }
 
     const ctx = new AudioContext({ sampleRate: 48000 })
@@ -75,9 +83,12 @@ export class MeetingRecorder {
         onChunk(new Uint8Array(e.data.pcm), e.data.level)
       return node
     }
-    const report = (key: 'mic' | 'system', level: number): void => {
+    const report = (key: Source, level: number): void => {
       this.levels = { ...this.levels, [key]: Math.min(1, level * 4) }
       this.onLevels?.(this.levels)
+    }
+    const send = (channel: AudioChannel, pcm: Uint8Array): void => {
+      if (!this.paused) window.api.sendPcm(channel, pcm)
     }
 
     const micSrc = micStream && ctx.createMediaStreamSource(micStream)
@@ -85,8 +96,9 @@ export class MeetingRecorder {
     micSrc?.connect(mix)
     sysSrc?.connect(mix)
 
-    if (channelsFor(p).includes('mix')) {
-      const mixNode = worklet((pcm) => window.api.sendPcm('mix', pcm))
+    const separate = channelsFor(p).includes('mic')
+    if (!separate) {
+      const mixNode = worklet((pcm) => send('mix', pcm))
       micSrc?.connect(mixNode)
       sysSrc?.connect(mixNode)
       // Medidores independientes aunque se transcriba la mezcla.
@@ -95,47 +107,86 @@ export class MeetingRecorder {
     } else {
       micSrc!.connect(
         worklet((pcm, l) => {
-          window.api.sendPcm('mic', pcm)
+          send('mic', pcm)
           report('mic', l)
         })
       )
       sysSrc!.connect(
         worklet((pcm, l) => {
-          window.api.sendPcm('system', pcm)
+          send('system', pcm)
           report('system', l)
         })
       )
     }
 
-    this.recorder = new MediaRecorder(mix.stream, {
-      mimeType: 'audio/webm;codecs=opus',
-      audioBitsPerSecond: 64000
-    })
-    this.recorder.ondataavailable = async (e) => {
-      if (e.data.size > 0) {
-        window.api.sendWebm(p.meetingId, new Uint8Array(await e.data.arrayBuffer()))
-      }
+    this.record(p.meetingId, 'mix', mix.stream, 64000)
+    if (separate) {
+      this.record(p.meetingId, 'mic', micStream!, 32000)
+      this.record(p.meetingId, 'system', systemStream!, 32000)
     }
-    this.recorder.start(5000)
-    this.startedAt = Date.now()
+    this.resumedAt = Date.now()
   }
 
-  /** Detiene todo y devuelve la duración en segundos. */
-  async stop(): Promise<number> {
-    const rec = this.recorder
-    if (rec && rec.state !== 'inactive') {
-      await new Promise<void>((resolve) => {
-        // El último ondataavailable llega antes que onstop, pero su arrayBuffer()
-        // es asíncrono: margen para que se envíe.
-        rec.onstop = () => setTimeout(resolve, 300)
-        rec.stop()
-      })
+  private record(meetingId: string, track: AudioChannel, stream: MediaStream, bitrate: number): void {
+    const rec = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: bitrate })
+    rec.ondataavailable = async (e) => {
+      if (e.data.size > 0) window.api.sendWebm(meetingId, track, new Uint8Array(await e.data.arrayBuffer()))
     }
+    rec.start(5000)
+    this.recorders.push(rec)
+  }
+
+  /**
+   * Silencia una fuente sin cortar la grabación: se sigue grabando silencio para que
+   * los tiempos de la transcripción y del audio sigan cuadrando.
+   */
+  setMuted(source: Source, muted: boolean): void {
+    this.sources[source]?.getAudioTracks().forEach((t) => (t.enabled = !muted))
+  }
+
+  /** Pausa la grabación: lo que suene mientras tanto no se graba ni se transcribe. */
+  pause(): void {
+    if (this.paused) return
+    this.paused = true
+    this.activeMs += Date.now() - this.resumedAt
+    this.recorders.forEach((r) => r.state === 'recording' && r.pause())
+  }
+
+  resume(): void {
+    if (!this.paused) return
+    this.paused = false
+    this.resumedAt = Date.now()
+    this.recorders.forEach((r) => r.state === 'paused' && r.resume())
+  }
+
+  /** Segundos grabados, sin contar las pausas. */
+  get elapsed(): number {
+    const ms = this.activeMs + (this.paused || !this.resumedAt ? 0 : Date.now() - this.resumedAt)
+    return Math.round(ms / 1000)
+  }
+
+  /** Detiene todo y devuelve la duración grabada en segundos. */
+  async stop(): Promise<number> {
+    const duration = this.elapsed
+    await Promise.all(
+      this.recorders
+        .filter((r) => r.state !== 'inactive')
+        .map(
+          (r) =>
+            new Promise<void>((resolve) => {
+              // El último ondataavailable llega antes que onstop, pero su arrayBuffer()
+              // es asíncrono: margen para que se envíe.
+              r.onstop = () => setTimeout(resolve, 300)
+              r.stop()
+            })
+        )
+    )
     this.streams.forEach((s) => s.getTracks().forEach((t) => t.stop()))
     this.streams = []
+    this.sources = {}
     await this.ctx?.close()
     this.ctx = null
-    this.recorder = null
-    return this.startedAt ? Math.round((Date.now() - this.startedAt) / 1000) : 0
+    this.recorders = []
+    return duration
   }
 }
