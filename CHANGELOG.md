@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/AleDev11/meeting-notes/compare/v0.5.0...v0.6.0) (2026-09-25)
+
+
+### Novedades
+
+* seguir grabando sin crédito, transcripciones pendientes y pantalla a elección ([#11](https://github.com/AleDev11/meeting-notes/issues/11)) ([9bd1463](https://github.com/AleDev11/meeting-notes/commit/9bd1463b7bf2b1a9f4df74b8a1c209169c94e94c))
+
 ## [0.5.0](https://github.com/AleDev11/meeting-notes/compare/v0.4.0...v0.5.0) (2026-09-25)
 
 
