@@ -25,13 +25,12 @@ import type {
   FinalProvider,
   LiveProvider,
   LlmProvider,
-  OllamaStatus,
   PromptTemplate,
   Settings,
   UpdateState
 } from '@shared/types'
-import { DEFAULT_OLLAMA_URL, RECOMMENDED_OLLAMA_MODEL, SMALL_OLLAMA_MODEL } from '@shared/types'
 import { AnimatePresence, motion } from 'motion/react'
+import { LocalAiCard } from './LocalAi'
 import { fadeUp, Field, Spinner, spring, Toggle, useUi } from './ui'
 import { CostEstimate } from './CostEstimate'
 import { GlossarySettings } from './GlossarySettings'
@@ -40,6 +39,7 @@ import { ComboInput, MultiSelect, Select } from './Select'
 import { knownModels, llmPrice } from '@shared/pricing'
 import { finalProviderFor, languageNames, LANGUAGES, liveProviderFor, needsElevenLabs } from '@shared/languages'
 
+export type SettingsTab = Tab
 type Tab = 'general' | 'audio' | 'transcription' | 'glossary' | 'ai' | 'prompts' | 'keys'
 
 const TABS: { id: Tab; label: string; icon: React.JSX.Element }[] = [
@@ -119,6 +119,8 @@ interface Props {
   recording: boolean
   onInstallUpdate: () => void
   onOpenOnboarding: () => void
+  /** Pestaña que se pide abrir desde fuera (p. ej. el aviso de la IA local); `n` cambia en cada petición. */
+  tabRequest?: { tab: Tab; n: number } | null
 }
 
 function modelHint(model: string): string {
@@ -128,9 +130,13 @@ function modelHint(model: string): string {
     : 'Modelo sin precio conocido: no se incluirá en la estimación de coste.'
 }
 
-export function SettingsView({ settings, onChange, update, recording, onInstallUpdate, onOpenOnboarding }: Props): React.JSX.Element {
-  const [tab, setTab] = useState<Tab>('general')
+export function SettingsView({ settings, onChange, update, recording, onInstallUpdate, onOpenOnboarding, tabRequest }: Props): React.JSX.Element {
+  const [tab, setTab] = useState<Tab>(tabRequest?.tab ?? 'general')
   const [s, setS] = useState(settings)
+  const sRef = useRef(settings)
+  sRef.current = s
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved'>('idle')
   const timer = useRef<number>(0)
   const [info, setInfo] = useState<{ version: string; packaged: boolean; libraryDir: string } | null>(null)
@@ -139,15 +145,37 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
     void window.api.appInfo().then(setInfo)
   }, [])
 
+  useEffect(() => {
+    if (tabRequest) setTab(tabRequest.tab)
+  }, [tabRequest])
+
   const set = (patch: Partial<Settings>): void => {
     const next = { ...s, ...patch }
     setS(next)
     setSaved('saving')
     clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
+      timer.current = 0
       void onChange(next).then(() => setSaved('saved'))
     }, 400)
   }
+
+  // El proceso principal ya lo ha guardado (IA local activada): se incorpora sin pisarlo.
+  useEffect(
+    () =>
+      window.api.onSettingsPatched((patch) => {
+        const next = { ...sRef.current, ...patch }
+        setS(next)
+        if (timer.current) {
+          clearTimeout(timer.current)
+          timer.current = window.setTimeout(() => {
+            timer.current = 0
+            void onChangeRef.current(next).then(() => setSaved('saved'))
+          }, 400)
+        }
+      }),
+    []
+  )
   const setKey = (k: keyof ApiKeys, v: string): void => set({ keys: { ...s.keys, [k]: v } })
   // Guarda lo pendiente antes de abrir el asistente, que parte de la configuración guardada.
   const openOnboarding = (): void => {
@@ -341,7 +369,10 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                 ))}
               </div>
               {s.llmProvider === 'ollama' ? (
-                <OllamaSettings s={s} set={set} />
+                <p className="muted small">
+                  El modelo se ejecuta en tu ordenador con Ollama: sin API key, sin coste y la reunión no sale del equipo. Es más
+                  lento que la nube y los resúmenes son algo menos finos.
+                </p>
               ) : s.llmProvider === 'anthropic' ? (
                 <Field label="Modelo de Claude" hint={modelHint(s.anthropicModel)}>
                   <ComboInput value={s.anthropicModel} suggestions={knownModels('claude')} onChange={(anthropicModel) => set({ anthropicModel })} />
@@ -360,6 +391,7 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                 </p>
               )}
             </section>
+            <LocalAiCard s={s} set={set} />
             </>
           )}
 
@@ -742,119 +774,3 @@ function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) =>
 
 export const SEPARATE_MIC_DESC =
   'Transcribe tu micrófono y el audio de la llamada por separado: lo que digas tú siempre aparece con tu nombre y el resto de voces se separan en Persona 1, 2, 3… Recomendado con auriculares. Desactívalo en reuniones presenciales con varias personas alrededor del mismo micrófono.'
-
-const gb = (bytes: number): string => `${(bytes / 1e9).toLocaleString('es-ES', { maximumFractionDigits: 1 })} GB`
-
-/** Comando para copiar con un clic. */
-function Command({ text }: { text: string }): React.JSX.Element {
-  const [copied, setCopied] = useState(false)
-  return (
-    <span className="command">
-      <code>{text}</code>
-      <button
-        className="icon-btn"
-        aria-label="Copiar"
-        onClick={() =>
-          void navigator.clipboard.writeText(text).then(() => {
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
-          })
-        }
-      >
-        {copied ? <Check size={13} /> : <Copy size={13} />}
-      </button>
-    </span>
-  )
-}
-
-export function OllamaSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) => void }): React.JSX.Element {
-  const [status, setStatus] = useState<OllamaStatus | null>(null)
-  const [checking, setChecking] = useState(false)
-
-  const check = async (url: string): Promise<void> => {
-    setChecking(true)
-    try {
-      setStatus(await window.api.ollamaStatus(url))
-    } finally {
-      setChecking(false)
-    }
-  }
-  useEffect(() => {
-    const t = window.setTimeout(() => void check(s.ollamaUrl), 500)
-    return () => clearTimeout(t)
-  }, [s.ollamaUrl])
-
-  const models = status?.models ?? []
-  const installed = models.some((m) => m.name === s.ollamaModel)
-  const pull = (
-    <>
-      Descarga un modelo desde una terminal. Recomendado: <strong>{RECOMMENDED_OLLAMA_MODEL}</strong> (6,6 GB, buen español,
-      catalán e inglés; pide unos 16 GB de RAM). Con 8 GB de RAM, {SMALL_OLLAMA_MODEL} (3,4 GB).
-      <Command text={`ollama pull ${RECOMMENDED_OLLAMA_MODEL}`} />
-    </>
-  )
-
-  return (
-    <>
-      <p className="muted small">
-        El modelo se ejecuta en tu ordenador: sin API key, sin coste y la reunión no sale del equipo. Es más lento que la nube y
-        los resúmenes son algo menos finos.
-      </p>
-      <Field label="Dirección de Ollama" hint={`Normalmente ${DEFAULT_OLLAMA_URL}.`}>
-        <input value={s.ollamaUrl} spellCheck={false} placeholder={DEFAULT_OLLAMA_URL} onChange={(e) => set({ ollamaUrl: e.target.value })} />
-      </Field>
-      <div className="ollama-status">
-        <span className={`dot ${status?.ok ? 'ok' : status ? 'off' : ''}`} />
-        <span className="small">
-          {!status
-            ? 'Comprobando…'
-            : status.ok
-              ? `Ollama en marcha · ${models.length === 1 ? '1 modelo instalado' : `${models.length} modelos instalados`}`
-              : 'Ollama no responde en esa dirección'}
-        </span>
-        <button className="btn ghost sm" disabled={checking} onClick={() => void check(s.ollamaUrl)}>
-          {checking ? <Spinner size={12} /> : <RefreshCw size={13} />} Comprobar
-        </button>
-      </div>
-
-      {status && !status.ok && (
-        <ol className="ollama-guide small">
-          <li>
-            Instala Ollama desde{' '}
-            <button className="link" onClick={() => void window.api.openExternal('https://ollama.com/download')}>
-              ollama.com
-            </button>{' '}
-            y ábrelo (se queda en la bandeja del sistema).
-          </li>
-          <li>{pull}</li>
-          <li>Pulsa Comprobar.</li>
-        </ol>
-      )}
-
-      {status?.ok && models.length === 0 && <p className="ollama-guide small">{pull}</p>}
-
-      {status?.ok && models.length > 0 && (
-        <Field
-          label="Modelo"
-          hint={
-            installed ? undefined : (
-              <span className="warn">
-                “{s.ollamaModel}” no está descargado. Elige uno de la lista o descárgalo:{' '}
-                <Command text={`ollama pull ${s.ollamaModel || RECOMMENDED_OLLAMA_MODEL}`} />
-              </span>
-            )
-          }
-        >
-          <Select
-            value={s.ollamaModel}
-            options={models.map((m) => ({
-              value: m.name,
-              label: [m.name, m.parameterSize, gb(m.size)].filter(Boolean).join(' · ')
-            }))}
-            onChange={(ollamaModel) => set({ ollamaModel })}
-          />
-        </Field>
-      )}
-    </>
-  )
-}

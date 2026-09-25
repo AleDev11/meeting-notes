@@ -19,6 +19,7 @@ import {
 import type { Folder, MeetingSummary, SearchResult } from '@shared/types'
 import { fmtDate, fmtDuration } from '../util'
 import { Select } from './Select'
+import { LocalAiPill } from './LocalAi'
 import { Logo, MenuItem, Popover, quick, soft } from './ui'
 
 export type SortMode = 'manual' | 'recent' | 'name'
@@ -48,6 +49,8 @@ interface Props {
   reveal: string | null
   onRevealed: () => void
   onOpenSettings: () => void
+  /** Abre Configuración en la pestaña de la IA local. */
+  onOpenLocalAi: () => void
   onCollapse: () => void
   /** Versión descargada y lista para instalar. */
   updateReady: string | null
@@ -839,6 +842,7 @@ export function Sidebar(p: Props): React.JSX.Element {
             </motion.button>
           )}
         </AnimatePresence>
+        <LocalAiPill onOpen={p.onOpenLocalAi} />
         <button className={`nav-item ${p.settingsOpen ? 'active' : ''}`} onClick={p.onOpenSettings}>
           <SettingsIcon size={15} /> <span>Configuración</span>
         </button>

@@ -18,7 +18,7 @@ import { channelsFor, MeetingRecorder, type Levels, type Source } from './audio/
 import { MeetingView } from './components/MeetingView'
 import { Onboarding } from './components/Onboarding'
 import { ScreenPrompt, type ScreenChoice } from './components/ScreenPrompt'
-import { SettingsView } from './components/SettingsView'
+import { SettingsView, type SettingsTab } from './components/SettingsView'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
 import type { LivePartial } from './components/TranscriptView'
@@ -77,6 +77,7 @@ function Shell(): React.JSX.Element {
   const onboardingRef = useRef(onboarding)
   /** Cambia al cerrar el asistente para que Configuración recargue lo que se ha guardado en él. */
   const [settingsEpoch, setSettingsEpoch] = useState(0)
+  const [settingsTab, setSettingsTab] = useState<{ tab: SettingsTab; n: number } | null>(null)
   onboardingRef.current = onboarding
 
   const recorder = useRef<MeetingRecorder | null>(null)
@@ -105,6 +106,8 @@ function Shell(): React.JSX.Element {
       if (!s.onboardingDone) setOnboarding('first')
     })
 
+    // Cambios guardados desde el proceso principal (IA local activada).
+    const offPatched = window.api.onSettingsPatched((patch) => setSettings((s) => (s ? { ...s, ...patch } : s)))
     const offUpdated = window.api.onMeetingUpdated((m) => {
       const cur = meetingRef.current
       if (cur?.id === m.id) {
@@ -146,6 +149,7 @@ function Shell(): React.JSX.Element {
     const beforeUnload = (): void => void flushSave()
     window.addEventListener('beforeunload', beforeUnload)
     return () => {
+      offPatched()
       offUpdated()
       offLive()
       offSummary()
@@ -634,6 +638,12 @@ function Shell(): React.JSX.Element {
               setView('settings')
               setDrawerOpen(false)
             }}
+            onOpenLocalAi={() => {
+              void flushSave()
+              setSettingsTab((r) => ({ tab: 'ai', n: (r?.n ?? 0) + 1 }))
+              setView('settings')
+              setDrawerOpen(false)
+            }}
             onCollapse={() => (narrow ? setDrawerOpen(false) : setSidebarHidden(true))}
             updateReady={update?.status === 'ready' ? (update.version ?? null) : null}
             onInstallUpdate={() => void installUpdate()}
@@ -681,6 +691,7 @@ function Shell(): React.JSX.Element {
               recording={!!recordingId}
               onInstallUpdate={() => void installUpdate()}
               onOpenOnboarding={() => setOnboarding('again')}
+              tabRequest={settingsTab}
             />
           </motion.div>
         ) : meeting ? (

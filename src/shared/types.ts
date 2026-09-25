@@ -124,6 +124,8 @@ export const DEFAULT_OLLAMA_URL = 'http://localhost:11434'
  */
 export const RECOMMENDED_OLLAMA_MODEL = 'qwen3.5:9b'
 export const SMALL_OLLAMA_MODEL = 'qwen3.5:4b'
+/** Instalador oficial de Ollama para Windows (redirige a la última versión en GitHub). */
+export const OLLAMA_INSTALLER_URL = 'https://ollama.com/download/OllamaSetup.exe'
 
 /** Modelo instalado en Ollama. */
 export interface OllamaModel {
@@ -131,6 +133,58 @@ export interface OllamaModel {
   /** Bytes en disco. */
   size: number
   parameterSize: string
+}
+
+/** Modelos Qwen 3.5 que la IA local sabe instalar, de mayor a menor. */
+export const LOCAL_MODELS: { name: string; bytes: number; ram: string }[] = [
+  { name: 'qwen3.5:9b', bytes: 6.6e9, ram: '16 GB de RAM o más' },
+  { name: 'qwen3.5:4b', bytes: 3.4e9, ram: 'de 8 a 16 GB de RAM' },
+  { name: 'qwen3.5:2b', bytes: 2.7e9, ram: 'menos de 8 GB de RAM' },
+  { name: 'qwen3.5:0.8b', bytes: 1.0e9, ram: 'equipos muy justos' }
+]
+
+/** Fases de la activación de la IA local, en orden. */
+export type LocalAiStage = 'download' | 'install' | 'start' | 'model' | 'done'
+
+export type LocalAiErrorCode = 'offline' | 'download' | 'signature' | 'installer' | 'start' | 'disk' | 'pull' | 'unsupported'
+
+export interface LocalAiProgress {
+  /** Bytes descargados y totales (0 si aún no se conoce). */
+  done: number
+  total: number
+  bytesPerSec: number
+}
+
+/** Estado de la activación de la IA local; vive en el proceso principal y se difunde a las ventanas. */
+export interface LocalAiState {
+  status: 'idle' | 'running' | 'done' | 'error'
+  stage: LocalAiStage | null
+  /** Fases que no hizo falta hacer (Ollama ya instalado, en marcha o modelo ya descargado). */
+  skipped: LocalAiStage[]
+  model: string
+  /** Aviso sobre el modelo elegido (p. ej. equipo con poca RAM). */
+  modelNote?: string
+  progress?: LocalAiProgress
+  /** Texto breve de lo que se está haciendo ahora. */
+  detail?: string
+  error?: { stage: LocalAiStage; code: LocalAiErrorCode; message: string }
+  /** La última activación la canceló el usuario. */
+  cancelled?: boolean
+}
+
+/** Qué hay ahora mismo en el equipo. */
+export interface LocalAiDetection {
+  running: boolean
+  installed: boolean
+  version?: string
+  models: string[]
+  url: string
+  /** Modelo recomendado para este equipo y la RAM en GB. */
+  recommended: string
+  ramGb: number
+  note?: string
+  /** Tamaño del instalador de Ollama, si se ha podido consultar. */
+  installerBytes?: number
 }
 
 /** Origen de una key disponible: guardada en la app, archivo .env.local o variable de entorno. */
