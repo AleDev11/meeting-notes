@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/AleDev11/meeting-notes/compare/v0.4.0...v0.5.0) (2026-09-25)
+
+
+### Novedades
+
+* índice de la biblioteca con búsqueda y grabación de pantalla ([#10](https://github.com/AleDev11/meeting-notes/issues/10)) ([ab4abd5](https://github.com/AleDev11/meeting-notes/commit/ab4abd5fca4effc1da70e9eb3f2555fe29fe75ad))
+
+
+### Correcciones
+
+* mostrar las tablas de las actas ([#7](https://github.com/AleDev11/meeting-notes/issues/7)) ([7061ef7](https://github.com/AleDev11/meeting-notes/commit/7061ef74ff4ba14fd1455e3e936353aeffd64c07))
+
 ## [0.4.0](https://github.com/AleDev11/meeting-notes/compare/v0.3.0...v0.4.0) (2026-09-25)
 
 
