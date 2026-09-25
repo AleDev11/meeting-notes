@@ -7,22 +7,32 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync
 } from 'fs'
 import { join } from 'path'
-import type { Folder, Meeting, MeetingSummary } from '../shared/types'
+import type { AudioChannel, Folder, Meeting, MeetingSummary } from '../shared/types'
 
 /**
  * Biblioteca en disco:
  *   library/folders.json
  *   library/meetings/<id>/meeting.json
- *   library/meetings/<id>/audio.webm
+ *   library/meetings/<id>/audio.webm    mezcla, para escuchar la grabación
+ *   library/meetings/<id>/mic.webm      solo micrófono (si se captura por separado)
+ *   library/meetings/<id>/system.webm   solo audio del sistema (si se captura por separado)
  */
 export const libraryDir = (): string => join(app.getPath('userData'), 'library')
 const meetingsDir = (): string => join(libraryDir(), 'meetings')
 const meetingDir = (id: string): string => join(meetingsDir(), id)
 const foldersFile = (): string => join(libraryDir(), 'folders.json')
-export const audioPath = (id: string): string => join(meetingDir(id), 'audio.webm')
+const AUDIO_FILES: Record<AudioChannel, string> = { mix: 'audio.webm', mic: 'mic.webm', system: 'system.webm' }
+export const audioPath = (id: string, track: AudioChannel = 'mix'): string => join(meetingDir(id), AUDIO_FILES[track])
+
+/** Pista con contenido, o null si no existe o está vacía. */
+export function audioTrack(id: string, track: AudioChannel): string | null {
+  const f = audioPath(id, track)
+  return existsSync(f) && statSync(f).size > 0 ? f : null
+}
 
 export function initStore(): void {
   mkdirSync(meetingsDir(), { recursive: true })
@@ -156,8 +166,9 @@ export function reorderMeetings(updates: Pick<Meeting, 'id' | 'folderId' | 'orde
 export function resetAudio(id: string): void {
   mkdirSync(meetingDir(id), { recursive: true })
   writeFileSync(audioPath(id), Buffer.alloc(0))
+  for (const track of ['mic', 'system'] as const) rmSync(audioPath(id, track), { force: true })
 }
 
-export function appendAudio(id: string, chunk: Uint8Array): void {
-  appendFileSync(audioPath(id), chunk)
+export function appendAudio(id: string, track: AudioChannel, chunk: Uint8Array): void {
+  appendFileSync(audioPath(id, track), chunk)
 }

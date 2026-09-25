@@ -12,11 +12,18 @@ Discord…), separa a cada persona que habla, permite tomar notas por secciones 
 ## Características
 
 - **Captura** del micrófono y del audio del sistema (loopback de Windows), sin depender de la aplicación de la llamada.
-- **Tu voz aparte**: el micrófono se transcribe por separado y se etiqueta como "Yo"; el resto se separa en
-  Persona 1, 2, 3… Se puede desactivar en reuniones presenciales.
+- **Tu voz aparte**: el micrófono y el audio de la llamada se graban y transcriben por separado, así que lo que dices
+  tú siempre sale con tu nombre y el resto se separa en Persona 1, 2, 3… Si usas altavoces, el eco de los demás que
+  recoge el micrófono se descarta. Se puede desactivar en reuniones presenciales.
+- **Varios idiomas**: la reunión puede pasar del español al inglés o al catalán y cada parte se transcribe en su
+  idioma.
 - **Transcripción en vivo** con Deepgram (con separación de hablantes) o ElevenLabs `scribe_v2_realtime`.
 - **Pasada final** al detener la grabación con ElevenLabs Scribe v2, AssemblyAI o Deepgram. Los nombres asignados
   en directo se conservan.
+- **Control durante la grabación**: pausar, silenciar tu micrófono o el audio de la reunión, y un modo mini con una
+  ventana flotante que muestra la transcripción en directo.
+- **Escuchar la grabación** desde cualquier frase de la transcripción y corregir el texto a mano.
+- **Vocabulario** propio (nombres, productos, siglas) para que se reconozca correctamente.
 - **Gestión de hablantes**: renombrar, fusionar, reasignar turnos y deducir nombres a partir de la conversación.
 - **Notas** por secciones reordenables, con marcas de tiempo (`Ctrl+T`) durante la grabación.
 - **Resúmenes** con Claude u OpenAI a partir de plantillas de prompt editables.

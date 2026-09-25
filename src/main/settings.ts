@@ -109,6 +109,7 @@ const defaults: Settings = {
   finalProvider: 'elevenlabs',
   expectedSpeakers: null,
   deepgramModel: 'nova-3',
+  vocabulary: [],
   llmProvider: 'anthropic',
   anthropicModel: 'claude-opus-5',
   openaiModel: 'gpt-5',
@@ -180,6 +181,8 @@ export function loadSettings(): Settings {
   for (const k of Object.keys(keys) as (keyof ApiKeys)[]) keys[k] = decrypt(keys[k])
   keys = withEnvKeys(keys)
   const s: Settings = { ...structuredClone(defaults), ...raw, keys }
+  // "Detectar automáticamente" se guardaba como cadena vacía.
+  if (!s.language) s.language = 'multi'
   // Asegura que las plantillas integradas existen aunque el usuario borre alguna.
   for (const p of BUILTIN_PROMPTS) {
     if (!s.prompts.some((x) => x.id === p.id)) s.prompts.push(p)

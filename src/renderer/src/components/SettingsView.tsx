@@ -45,15 +45,25 @@ const TABS: { id: Tab; label: string; icon: React.JSX.Element }[] = [
 ]
 
 const LANGUAGES = [
+  ['multi', 'Varios idiomas (detecta cada cambio)'],
   ['es', 'Español'],
   ['en', 'Inglés'],
   ['ca', 'Catalán'],
   ['pt', 'Portugués'],
   ['fr', 'Francés'],
   ['de', 'Alemán'],
-  ['it', 'Italiano'],
-  ['', 'Detectar automáticamente']
+  ['it', 'Italiano']
 ]
+
+function languageHint(s: Settings): string {
+  if (s.language !== 'multi') {
+    return 'Fijar el idioma da la máxima precisión si toda la reunión es en ese idioma.'
+  }
+  const catalanLive = s.liveProvider === 'deepgram'
+    ? ' En directo, Deepgram no reconoce el catalán cuando se mezcla con otros idiomas; la pasada final con ElevenLabs sí.'
+    : ''
+  return `Para reuniones en las que se cambia de idioma sobre la marcha (español, inglés, catalán…). Cada fragmento se transcribe en el idioma en que se dice.${catalanLive}`
+}
 
 const LIVE: { id: LiveProvider; name: string; desc: string; key?: keyof ApiKeys; tag?: string }[] = [
   {
@@ -61,13 +71,13 @@ const LIVE: { id: LiveProvider; name: string; desc: string; key?: keyof ApiKeys;
     name: 'Deepgram',
     key: 'deepgram',
     tag: 'Recomendado',
-    desc: 'Separa a las personas en directo (Persona 1, 2, 3…) mientras hablan. Puedes nombrarlas durante la reunión.'
+    desc: 'Separa a las personas en directo (Persona 1, 2, 3…) mientras hablan. Mezcla español, inglés y otros idiomas, pero no reconoce el catalán en ese modo.'
   },
   {
     id: 'elevenlabs',
     name: 'ElevenLabs',
     key: 'elevenlabs',
-    desc: 'Transcripción en vivo muy precisa, pero sin separar voces: el audio del sistema aparece como “Participantes” hasta la pasada final.'
+    desc: 'Transcripción en vivo muy precisa y con catalán, pero sin separar voces: el audio de la reunión aparece como “Participantes” hasta la pasada final.'
   },
   { id: 'none', name: 'Sin transcripción en vivo', desc: 'Solo se graba; la transcripción aparece al terminar.' }
 ]
@@ -78,7 +88,7 @@ const FINAL: { id: FinalProvider; name: string; desc: string; key?: keyof ApiKey
     name: 'ElevenLabs Scribe v2',
     key: 'elevenlabs',
     tag: 'Recomendado',
-    desc: 'Muy buena separación de hablantes (hasta 32) y precisión en español.'
+    desc: 'La mejor separación de hablantes (hasta 32) y detecta el idioma de cada parte, catalán incluido.'
   },
   {
     id: 'assemblyai',
@@ -196,7 +206,7 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                 <Field label="Tu nombre" hint="Se usa para etiquetar tu voz (micrófono) en la transcripción y en los resúmenes.">
                   <input value={s.myName} placeholder="Yo" onChange={(e) => set({ myName: e.target.value })} />
                 </Field>
-                <Field label="Idioma de las reuniones" hint="Fijar el idioma mejora la precisión. Usa detección automática si mezclas idiomas.">
+                <Field label="Idioma de las reuniones" hint={languageHint(s)}>
                   <select value={s.language} onChange={(e) => set({ language: e.target.value })}>
                     {LANGUAGES.map(([v, l]) => (
                       <option key={v} value={v}>
@@ -261,7 +271,7 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
               </section>
               <section className="card">
                 <h2>Ajustes de hablantes</h2>
-                <Field label="Número de personas esperado" hint="Déjalo vacío para que se detecte solo. Indicarlo mejora la separación cuando lo sabes.">
+                <Field label="Personas en la reunión, contándote a ti" hint="Déjalo vacío para que se detecte solo. Indicarlo mejora mucho la separación cuando lo sabes.">
                   <input
                     type="number"
                     min={1}
@@ -270,6 +280,12 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                     value={s.expectedSpeakers ?? ''}
                     onChange={(e) => set({ expectedSpeakers: e.target.value ? Number(e.target.value) : null })}
                   />
+                </Field>
+                <Field
+                  label="Vocabulario"
+                  hint="Nombres propios, productos, siglas o términos técnicos que se dicen en tus reuniones, separados por comas. También se usan los nombres de las personas conocidas."
+                >
+                  <VocabularyInput value={s.vocabulary} onChange={(vocabulary) => set({ vocabulary })} />
                 </Field>
                 <Field label="Modelo de Deepgram">
                   <input value={s.deepgramModel} onChange={(e) => set({ deepgramModel: e.target.value })} />
@@ -394,6 +410,26 @@ function UpdateCard({
         )}
       </div>
     </section>
+  )
+}
+
+/** Lista separada por comas; se normaliza al salir del campo para no molestar al escribir. */
+function VocabularyInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }): React.JSX.Element {
+  const [text, setText] = useState(value.join(', '))
+  const commit = (): void => {
+    const terms = [...new Set(text.split(/[,\n]/).map((t) => t.trim()).filter(Boolean))]
+    setText(terms.join(', '))
+    if (terms.join('|') !== value.join('|')) onChange(terms)
+  }
+  return (
+    <textarea
+      className="vocab"
+      rows={3}
+      value={text}
+      placeholder="Kubernetes, Acme, OKR, Núria…"
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+    />
   )
 }
 

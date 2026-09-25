@@ -21,6 +21,8 @@ export interface TranscriptSegment {
   start: number
   end: number
   source: 'live' | 'final'
+  /** Idioma detectado (código ISO 639-1), si el proveedor lo indica. */
+  lang?: string
 }
 
 export interface Speaker {
@@ -87,6 +89,7 @@ export interface Settings {
   keys: ApiKeys
   // general
   myName: string
+  /** Código de idioma, o 'multi' si en la reunión se mezclan varios. */
   language: string
   micDeviceId: string
   /** Transcribe el micrófono aparte y lo etiqueta siempre como "yo". */
@@ -94,8 +97,11 @@ export interface Settings {
   // transcripción
   liveProvider: LiveProvider
   finalProvider: FinalProvider
+  /** Personas en la reunión, contándote a ti. */
   expectedSpeakers: number | null
   deepgramModel: string
+  /** Nombres propios y términos que el reconocimiento de voz debe esperar. */
+  vocabulary: string[]
   // IA
   llmProvider: LlmProvider
   anthropicModel: string
@@ -127,6 +133,30 @@ export const speakerLabel = (s: Speaker | undefined, myName = 'Yo'): string => {
   if (s.id === OTHERS) return 'Participantes'
   return `Persona ${s.index}`
 }
+
+/** Línea de la transcripción que se muestra en el modo mini. */
+export interface MiniLine {
+  id: string
+  speaker: string
+  color: string
+  text: string
+  partial?: boolean
+}
+
+/** Estado de una fuente de audio durante la grabación. */
+export type SourceState = 'off' | 'on' | 'muted'
+
+export interface MiniState {
+  title: string
+  recording: boolean
+  paused: boolean
+  elapsed: number
+  mic: SourceState
+  system: SourceState
+  lines: MiniLine[]
+}
+
+export type MiniCommand = 'pause' | 'resume' | 'toggleMic' | 'toggleSystem' | 'stop' | 'expand'
 
 export type UpdateStatus =
   | 'unsupported'

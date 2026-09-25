@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, session, shell } from 'electron'
-import { existsSync, statSync, writeFileSync } from 'fs'
+import { writeFileSync } from 'fs'
 import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
 import {
@@ -17,11 +17,15 @@ import { BUILTIN_PROMPTS, DEFAULT_SPEAKER_ID_PROMPT, loadSettings, rememberPeopl
 import {
   applyFinalTranscript,
   ensureSpeaker,
+  isEcho,
   mergeSpeakers,
+  mergeTracks,
   newSpeakerId,
   reassignSegments,
   renameSpeaker
 } from './speakers'
+import { handleMediaRequests, registerMediaScheme } from './media'
+import { registerMini } from './mini'
 import * as store from './store'
 import { buildMeetingDocument, suggestSpeakerNames, summarize, transcriptText } from './summarize'
 import { createLiveSession, transcribeFile } from './transcription'
@@ -29,6 +33,7 @@ import type { LiveSession, RawSegment } from './transcription/types'
 import { checkForUpdates, getUpdateState, initUpdater, installUpdate } from './updater'
 
 let win: BrowserWindow | null = null
+registerMediaScheme()
 
 interface ActiveRecording {
   meetingId: string
@@ -98,9 +103,14 @@ function startRecording(meetingId: string, channels: AudioChannel[]): void {
         onSegment: (raw: RawSegment) => {
           if (rec !== r) return
           mutate(meetingId, (m) => {
+            // Sin auriculares el micrófono recoge a los demás: su eco no es tuyo.
+            if (channel === 'mic' && isEcho(raw, m.transcript.filter((s) => s.speakerId !== ME))) return
+            if (channel === 'system') {
+              m.transcript = m.transcript.filter((s) => s.speakerId !== ME || s.source !== 'live' || !isEcho(s, [raw]))
+            }
             const speakerId = speakerFor(r, m, channel, raw.speaker)
-            const { text, start, end } = raw
-            m.transcript.push({ id: randomUUID(), speakerId, text, start, end, source: 'live' })
+            const { text, start, end, lang } = raw
+            m.transcript.push({ id: randomUUID(), speakerId, text, start, end, source: 'live', ...(lang && { lang }) })
             m.transcript.sort((a, b) => a.start - b.start)
           })
         },
@@ -139,10 +149,30 @@ function stopLiveSessions(): void {
   rec = null
 }
 
+/**
+ * Transcribe la grabación completa con el proveedor final. Si tu micrófono y el audio
+ * de la llamada se grabaron por separado, cada pista se procesa por su lado: tu voz
+ * queda identificada sin margen de error y la separación de hablantes solo tiene que
+ * distinguir al resto de personas.
+ */
+async function transcribeRecording(meetingId: string, s: Settings): Promise<RawSegment[] | null> {
+  const mic = store.audioTrack(meetingId, 'mic')
+  const system = store.audioTrack(meetingId, 'system')
+  if (mic && system) {
+    const others = s.expectedSpeakers ? Math.max(1, s.expectedSpeakers - 1) : null
+    const [mine, theirs] = await Promise.all([
+      transcribeFile(s, mic, { diarize: false, expectedSpeakers: null }),
+      transcribeFile(s, system, { diarize: true, expectedSpeakers: others })
+    ])
+    return mergeTracks(mine, theirs)
+  }
+  const mix = store.audioTrack(meetingId, 'mix')
+  return mix ? transcribeFile(s, mix, { diarize: true, expectedSpeakers: s.expectedSpeakers }) : null
+}
+
 async function finalPass(meetingId: string): Promise<void> {
   const settings = loadSettings()
-  const file = store.audioPath(meetingId)
-  if (settings.finalProvider === 'none' || !existsSync(file) || statSync(file).size === 0) {
+  if (settings.finalProvider === 'none' || !store.audioTrack(meetingId, 'mix')) {
     mutate(meetingId, (m) => (m.status = 'done'))
     return
   }
@@ -151,7 +181,7 @@ async function finalPass(meetingId: string): Promise<void> {
     m.error = undefined
   })
   try {
-    const final = await transcribeFile(settings, file)
+    const final = (await transcribeRecording(meetingId, settings)) ?? []
     mutate(meetingId, (m) => {
       if (final.length) applyFinalTranscript(m, final)
       m.status = 'done'
@@ -281,8 +311,8 @@ function registerIpc(): void {
   ipcMain.on('recording:pcm', (_e, channel: AudioChannel, chunk: Uint8Array) =>
     rec?.sessions.get(channel)?.sendAudio(chunk)
   )
-  ipcMain.on('recording:webm', (_e, meetingId: string, chunk: Uint8Array) =>
-    store.appendAudio(meetingId, chunk)
+  ipcMain.on('recording:webm', (_e, meetingId: string, track: AudioChannel, chunk: Uint8Array) =>
+    store.appendAudio(meetingId, track, chunk)
   )
   ipcMain.handle('recording:stop', async (_e, meetingId: string, durationSec: number) => {
     const hadLive = (rec?.sessions.size ?? 0) > 0
@@ -318,6 +348,8 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   store.initStore()
   registerIpc()
+  registerMini(() => win, icon)
+  handleMediaRequests()
 
   // getDisplayMedia() en el renderer -> pantalla principal + audio "loopback":
   // todo lo que suena en el equipo (Teams, Meet, Discord, Zoom, navegador...).
