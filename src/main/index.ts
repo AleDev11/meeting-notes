@@ -30,6 +30,7 @@ import { applyLoginItem, claimSingleInstance, setupBackground, startHidden } fro
 import { classify, explain, isFatalLive, isRecoverable } from './failures'
 import { handleMediaRequests, registerMediaScheme } from './media'
 import { registerMini } from './mini'
+import { ollamaStatus } from './ollama'
 import * as store from './store'
 import { buildMeetingDocument, suggestSpeakerNames, summarize, transcriptText } from './summarize'
 import { createLiveSession, transcribeFile } from './transcription'
@@ -253,8 +254,10 @@ async function withLlmErrors<T>(fn: () => Promise<T>): Promise<T> {
   } catch (err) {
     const message = (err as Error).message
     const kind = classify(message)
-    if (kind === 'other') throw err
-    const provider = loadSettings().llmProvider === 'openai' ? 'OpenAI' : 'Anthropic'
+    const llm = loadSettings().llmProvider
+    // El cliente de Ollama ya devuelve mensajes claros (no está abierto, falta el modelo…).
+    if (kind === 'other' || llm === 'ollama') throw err
+    const provider = llm === 'openai' ? 'OpenAI' : 'Anthropic'
     const hint = kind === 'credits' ? ' Recarga saldo en su consola y vuelve a intentarlo.' : kind === 'auth' ? ' Revísala en Configuración > API keys.' : ' Vuelve a intentarlo en unos minutos.'
     throw new Error(`${explain(provider, kind)}.${hint}`)
   }
@@ -291,6 +294,7 @@ function registerIpc(): void {
     if (JSON.stringify(before.keys) !== JSON.stringify(s.keys) || before.finalProvider !== s.finalProvider) retryPending()
   })
   ipcMain.handle('meeting:retryPending', () => retryPending())
+  ipcMain.handle('ollama:status', (_e, url: string) => ollamaStatus(url))
   ipcMain.handle('settings:defaults', () => ({
     prompts: BUILTIN_PROMPTS,
     speakerIdPrompt: DEFAULT_SPEAKER_ID_PROMPT

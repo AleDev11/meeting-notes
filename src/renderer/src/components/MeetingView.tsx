@@ -92,7 +92,8 @@ export function MeetingView(p: Props): React.JSX.Element {
   const [sideTab, setSideTab] = useState<'notes' | 'summary'>('notes')
   const [menu, setMenu] = useState(false)
   const activeSpeakers = p.partials.filter((x) => x.text).map((x) => x.speakerId)
-  const providerName = p.settings.llmProvider === 'openai' ? 'ChatGPT' : 'Claude'
+  const providerName =
+    p.settings.llmProvider === 'openai' ? 'ChatGPT' : p.settings.llmProvider === 'ollama' ? `${p.settings.ollamaModel} (Ollama)` : 'Claude'
 
   const transcript = (
     <TranscriptView

@@ -840,3 +840,13 @@ textarea.vocab { font-family: var(--font); font-size: 13px; }
 .modal.screen-prompt { max-width: 520px; }
 .modal.screen-prompt .screen-grid { margin-top: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); padding: 0; }
 .mini-btn.dim { color: var(--muted); }
+
+/* Ollama (IA local) */
+.ollama-status { display: flex; align-items: center; gap: 8px; }
+.ollama-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex-shrink: 0; }
+.ollama-status .dot.ok { background: var(--ok); }
+.ollama-status .dot.off { background: var(--danger); }
+.ollama-guide { margin: 0; padding: 10px 12px 10px 28px; background: var(--surface-2); border-radius: var(--r); color: var(--text-2); display: flex; flex-direction: column; gap: 6px; }
+p.ollama-guide { display: block; padding-left: 12px; }
+.command { display: flex; align-items: center; gap: 4px; margin-top: 4px; width: fit-content; padding: 2px 2px 2px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.command code { color: var(--text); user-select: all; }

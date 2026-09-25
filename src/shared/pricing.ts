@@ -103,15 +103,18 @@ export function llmPrice(model: string): [number, number] | null {
 }
 
 export function estimateCost(s: Settings): CostEstimate {
-  const model = s.llmProvider === 'openai' ? s.openaiModel : s.anthropicModel
-  const price = llmPrice(model)
+  const local = s.llmProvider === 'ollama'
+  const model = local ? s.ollamaModel : s.llmProvider === 'openai' ? s.openaiModel : s.anthropicModel
+  // Con Ollama el modelo corre en el equipo: no hay coste por token.
+  const price: [number, number] | null = local ? [0, 0] : llmPrice(model)
   const summary = price
     ? (TOKENS_PER_HOUR.input * price[0] + TOKENS_PER_HOUR.output * price[1]) / 1_000_000
     : null
+  const detail = local ? `${model || 'Ollama'} · en tu equipo, sin coste` : `${model} · un resumen por reunión`
   const lines: CostLine[] = [
     { key: 'live', label: 'Transcripción en vivo', ...liveCost(s) },
     { key: 'final', label: 'Transcripción final', ...finalCost(s) },
-    { key: 'summary', label: 'Resumen con IA', detail: `${model} · un resumen por reunión`, perHour: summary }
+    { key: 'summary', label: 'Resumen con IA', detail, perHour: summary }
   ]
   return {
     lines,

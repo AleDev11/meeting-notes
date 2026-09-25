@@ -5,6 +5,7 @@ import type {
   LiveEvent,
   Meeting,
   MeetingSummary,
+  OllamaStatus,
   RecordingTrack,
   ScreenSource,
   SearchResult,
@@ -30,6 +31,7 @@ const api = {
   saveSettings: (s: Settings): Promise<void> => invoke('settings:save', s),
   getDefaults: (): Promise<{ prompts: PromptTemplate[]; speakerIdPrompt: string }> =>
     invoke('settings:defaults'),
+  ollamaStatus: (url: string): Promise<OllamaStatus> => invoke('ollama:status', url),
   appInfo: (): Promise<{ version: string; packaged: boolean; libraryDir: string }> => invoke('app:info'),
   publishRecordingState: (s: { recording: boolean; paused: boolean }): void => ipcRenderer.send('recording:state', s),
   quitApp: (): Promise<void> => invoke('app:quit'),

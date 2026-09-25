@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { DEFAULT_OLLAMA_URL, RECOMMENDED_OLLAMA_MODEL } from '../shared/types'
 import type { ApiKeys, PromptTemplate, Settings } from '../shared/types'
 
 const COMMON_RULES = `Usa los nombres de los hablantes tal y como aparecen. No inventes información que no esté en la transcripción o en las notas. Responde en el idioma de la reunión, en Markdown.`
@@ -116,6 +117,8 @@ const defaults: Settings = {
   llmProvider: 'anthropic',
   anthropicModel: 'claude-opus-5',
   openaiModel: 'gpt-5',
+  ollamaUrl: DEFAULT_OLLAMA_URL,
+  ollamaModel: RECOMMENDED_OLLAMA_MODEL,
   prompts: BUILTIN_PROMPTS,
   defaultPromptId: 'general',
   speakerIdPrompt: DEFAULT_SPEAKER_ID_PROMPT,
