@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/AleDev11/meeting-notes/compare/v0.7.0...v0.7.1) (2026-09-25)
+
+
+### Correcciones
+
+* publicar las releases solo cuando el instalador ya está subido ([#15](https://github.com/AleDev11/meeting-notes/issues/15)) ([df06065](https://github.com/AleDev11/meeting-notes/commit/df060650ae62d2623ce88721ee2f68e0eee2cc39))
+
 ## [0.7.0](https://github.com/AleDev11/meeting-notes/compare/v0.6.0...v0.7.0) (2026-09-25)
 
 
