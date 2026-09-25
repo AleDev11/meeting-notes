@@ -3,9 +3,11 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import OpenAI from 'openai'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
+import { glossaryBlock } from '../shared/glossary'
 import {
   ME,
   speakerLabel,
+  type GlossaryEntry,
   type Meeting,
   type Settings,
   type SpeakerSuggestion
@@ -32,18 +34,26 @@ export function transcriptText(m: Meeting, myName: string): string {
 }
 
 /** maxTranscriptChars: recorta la transcripción para modelos con poco contexto (Ollama). */
-export function buildMeetingDocument(m: Meeting, myName: string, maxTranscriptChars = Infinity): string {
+export function buildMeetingDocument(
+  m: Meeting,
+  myName: string,
+  glossary: GlossaryEntry[] = [],
+  maxTranscriptChars = Infinity
+): string {
   const notes = [...m.sections]
     .sort((a, b) => a.order - b.order)
     .filter((s) => s.content.trim())
     .map((s) => `### ${s.title}\n${s.content.trim()}`)
     .join('\n\n')
   const me = m.speakers[ME] ? `\nEl usuario de la app es "${speakerLabel(m.speakers[ME], myName)}".` : ''
+  const transcript = transcriptText(m, myName)
+  const glosario = glossaryBlock(glossary, `${m.title}\n${notes}\n${transcript}`)
 
   return [
     `<reunion titulo="${m.title}" fecha="${m.createdAt}">${me}`,
+    ...(glosario ? [glosario] : []),
     `<notas_del_usuario>\n${notes || '(sin notas)'}\n</notas_del_usuario>`,
-    `<transcripcion>\n${fitTranscript(transcriptText(m, myName), maxTranscriptChars) || '(sin transcripción)'}\n</transcripcion>`,
+    `<transcripcion>\n${fitTranscript(transcript, maxTranscriptChars) || '(sin transcripción)'}\n</transcripcion>`,
     `</reunion>`
   ].join('\n\n')
 }
@@ -71,8 +81,9 @@ export async function summarize(
   if (s.llmProvider === 'ollama') {
     // Se reserva sitio para un acta larga; el resto del contexto es para la reunión.
     const output = 4096
-    const other = buildMeetingDocument(m, s.myName).length - transcriptText(m, s.myName).length + prompt.content.length
-    const doc = buildMeetingDocument(m, s.myName, transcriptBudget(other, output))
+    const other =
+      buildMeetingDocument(m, s.myName, s.glossary).length - transcriptText(m, s.myName).length + prompt.content.length
+    const doc = buildMeetingDocument(m, s.myName, s.glossary, transcriptBudget(other, output))
     return ollamaStream(
       {
         url: s.ollamaUrl,
@@ -86,7 +97,7 @@ export async function summarize(
     )
   }
 
-  const doc = buildMeetingDocument(m, s.myName)
+  const doc = buildMeetingDocument(m, s.myName, s.glossary)
 
   if (s.llmProvider === 'openai') {
     const stream = await openai(s).responses.create({
@@ -141,11 +152,14 @@ export async function suggestSpeakerNames(m: Meeting, s: Settings): Promise<Spea
   const unnamed = Object.values(m.speakers).filter((sp) => !sp.name && sp.id !== ME)
   if (unnamed.length === 0) return []
   const labels = unnamed.map((sp) => speakerLabel(sp)).join(', ')
+  const transcript = transcriptText(m, s.myName)
+  // Así la jerga ("pre", "pro"…) no se confunde con nombres de persona.
+  const glosario = glossaryBlock(s.glossary, transcript)
   const header = `Etiquetas a identificar: ${labels}\n${
     s.knownPeople.length ? `Personas conocidas del usuario (pueden aparecer o no): ${s.knownPeople.join(', ')}\n` : ''
-  }`
+  }${glosario ? `\n${glosario}\n` : ''}`
   const build = (maxChars = Infinity): string =>
-    `${header}\n<transcripcion>\n${fitTranscript(transcriptText(m, s.myName), maxChars)}\n</transcripcion>`
+    `${header}\n<transcripcion>\n${fitTranscript(transcript, maxChars)}\n</transcripcion>`
   const input = build()
 
   let result: z.infer<typeof SuggestionsSchema> | null

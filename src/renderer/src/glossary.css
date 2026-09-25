@@ -1,0 +1,57 @@
+/* =====================================================================
+   Jergas y vocabulario
+   ===================================================================== */
+.gloss-example { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); font-size: 12.5px; color: var(--text-2); }
+.gloss-example b { font-family: var(--mono); font-weight: 600; font-size: 12px; color: var(--text); }
+
+.gloss-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 8px; }
+.gloss-dup { margin-top: -6px; }
+.gloss-toolbar { display: flex; align-items: center; gap: 10px; min-height: var(--h); }
+.gloss-search { position: relative; display: flex; align-items: center; width: 240px; }
+.gloss-search > svg { position: absolute; left: 9px; color: var(--muted); pointer-events: none; }
+.gloss-search input { width: 100%; padding-left: 30px; padding-right: 28px; }
+.gloss-search .icon-btn { position: absolute; right: 4px; }
+.gloss-empty { padding: 18px 0 8px; text-align: center; }
+
+.gloss-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.gloss-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 24px; gap: 8px; align-items: center;
+  padding: 3px 0; border-bottom: 1px solid var(--line);
+  /* Cientos de filas: las que no se ven no se pintan. */
+  content-visibility: auto; contain-intrinsic-size: auto 37px;
+}
+.gloss-head { padding: 8px 0 6px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; content-visibility: visible; }
+.gloss-head span { padding-left: 9px; }
+.gloss-row input { height: 30px; padding: 0 8px; border-color: transparent; background: transparent; }
+.gloss-row input:hover { border-color: var(--line-2); }
+.gloss-row input:focus { background: var(--surface); border-color: var(--accent); }
+.gloss-row input.gloss-term { font-family: var(--mono); font-size: 12.5px; font-weight: 550; }
+.gloss-row input::placeholder { color: var(--faint); font-style: italic; }
+.gloss-del { opacity: 0; }
+.gloss-row:hover .gloss-del, .gloss-del:focus-visible { opacity: 1; }
+.gloss-del:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+.gloss-row.flash { animation: gloss-flash 1.6s var(--ease); }
+@keyframes gloss-flash { 0%, 40% { background: var(--accent-soft); } 100% { background: transparent; } }
+
+/* ---- en la transcripción ---- */
+.gloss-mark { text-decoration: underline dotted var(--faint); text-underline-offset: 3px; text-decoration-thickness: 1px; cursor: help; }
+.gloss-mark:hover { text-decoration-color: var(--accent); }
+
+.sel-float {
+  position: fixed; z-index: 70; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  border: none; border-radius: 7px; background: var(--surface); box-shadow: var(--shadow-pop);
+  color: var(--text); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.sel-float svg { color: var(--accent); }
+.sel-float:hover { background: var(--surface-2); }
+.sel-anchor { position: fixed; z-index: 70; width: 0; height: 0; }
+.sel-anchor .popover { top: 4px; }
+.sel-anchor .popover.up { top: auto; bottom: 4px; }
+.pop-sel { min-width: 200px; }
+.pop-gloss { width: 320px; max-width: 320px; }
+.gloss-form { display: flex; flex-direction: column; gap: 10px; padding: 0 8px 8px; }
+.gloss-form .menu-heading { padding-left: 0; padding-right: 0; }
+.gloss-form-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 550; color: var(--text-2); }
+.gloss-form-field input { width: 100%; font-weight: 400; color: var(--text); }
+.gloss-form-note { font-size: 12px; line-height: 1.5; color: var(--muted); }
+.gloss-form-actions { display: flex; justify-content: flex-end; gap: 6px; }

@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { normalizeGlossary } from '../shared/glossary'
 import { DEFAULT_OLLAMA_URL, RECOMMENDED_OLLAMA_MODEL } from '../shared/types'
 import type { ApiKeys, PromptTemplate, Settings } from '../shared/types'
 
@@ -113,7 +114,7 @@ const defaults: Settings = {
   finalProvider: 'elevenlabs',
   expectedSpeakers: null,
   deepgramModel: 'nova-3',
-  vocabulary: [],
+  glossary: [],
   llmProvider: 'anthropic',
   anthropicModel: 'claude-opus-5',
   openaiModel: 'gpt-5',
@@ -189,9 +190,18 @@ export function loadSettings(): Settings {
   let keys = { ...defaultKeys, ...(raw.keys ?? {}) }
   for (const k of Object.keys(keys) as (keyof ApiKeys)[]) keys[k] = decrypt(keys[k])
   keys = withEnvKeys(keys)
-  const s: Settings = { ...structuredClone(defaults), ...raw, keys }
-  // Antes se guardaba un único idioma; '' y 'multi' equivalían a detectar cualquiera.
-  if (!raw.languages && language !== undefined) s.languages = language && language !== 'multi' ? [language] : []
+  const { vocabulary, ...rest } = raw as Partial<Settings> & { vocabulary?: string[] }
+  const s: Settings = { ...structuredClone(defaults), ...rest, keys }
+  // Antes se guardaba un único idioma. 'multi' (o '') era "Varios idiomas": en la práctica español,
+  // catalán e inglés, que es lo que se habla en estas reuniones.
+  if (!raw.languages && language !== undefined) {
+    s.languages = language && language !== 'multi' ? [language] : ['es', 'ca', 'en']
+  }
+  // El antiguo vocabulario (solo términos) pasa al glosario sin significado.
+  s.glossary = normalizeGlossary([
+    ...(Array.isArray(s.glossary) ? s.glossary : []),
+    ...(vocabulary ?? []).map((term) => ({ term, meaning: '' }))
+  ])
   // Asegura que las plantillas integradas existen aunque el usuario borre alguna.
   for (const p of BUILTIN_PROMPTS) {
     if (!s.prompts.some((x) => x.id === p.id)) s.prompts.push(p)

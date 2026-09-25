@@ -471,7 +471,8 @@ function registerIpc(): void {
   })
   ipcMain.handle('meeting:document', (_e, id: string) => {
     const m = store.getMeeting(id)
-    return m ? buildMeetingDocument(m, loadSettings().myName) : ''
+    const s = loadSettings()
+    return m ? buildMeetingDocument(m, s.myName, s.glossary) : ''
   })
 }
 
