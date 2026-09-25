@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Check, KeyRound, PanelLeftOpen, Plus } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
@@ -50,6 +50,8 @@ function Shell(): React.JSX.Element {
   const [view, setView] = useState<'meeting' | 'settings'>('meeting')
   const [sidebarHidden, setSidebarHidden] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  /** Carpeta que el panel lateral debe desplegar y enseñar. */
+  const [reveal, setReveal] = useState<string | null>(null)
 
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -243,13 +245,18 @@ function Shell(): React.JSX.Element {
     })
   }
 
-  const moveMeeting = (id: string, folderId: string | null, beforeId: string | null): Promise<void> =>
+  /** shown: orden visible de la carpeta (otro criterio de orden); si no, el manual. */
+  const moveMeeting = (id: string, folderId: string | null, beforeId: string | null, shown?: string[]): Promise<void> =>
     run(async () => {
       const dragged = meetings.find((m) => m.id === id)
       if (!dragged) return
+      const rank = (m: MeetingSummary): number => {
+        const i = shown ? shown.indexOf(m.id) : -1
+        return i < 0 ? (shown ? 1e9 : 0) + m.order : i
+      }
       const siblings = meetings
         .filter((m) => m.folderId === folderId && m.id !== id)
-        .sort((a, b) => a.order - b.order)
+        .sort((a, b) => rank(a) - rank(b))
       const idx = beforeId ? siblings.findIndex((m) => m.id === beforeId) : -1
       siblings.splice(idx < 0 ? siblings.length : idx, 0, dragged)
       await window.api.reorderMeetings(siblings.map((m, i) => ({ id: m.id, folderId, order: i })))
@@ -271,6 +278,17 @@ function Shell(): React.JSX.Element {
       await window.api.reorderFolders(siblings.map((f, i) => ({ id: f.id, parentId, order: i })))
       await refreshLibrary()
     })
+
+  // Ruta de carpetas de la reunión abierta, de la raíz hacia dentro.
+  const folderId = meeting?.folderId ?? null
+  const folderPath = useMemo(() => {
+    const path: Folder[] = []
+    for (let f = folders.find((x) => x.id === folderId); f; f = folders.find((x) => x.id === f?.parentId)) {
+      if (path.includes(f)) break
+      path.unshift(f)
+    }
+    return path
+  }, [folders, folderId])
 
   // ---------- grabación ----------
 
@@ -554,8 +572,10 @@ function Shell(): React.JSX.Element {
             onRenameFolder={(f) => void renameFolder(f)}
             onDeleteFolder={(f) => void deleteFolder(f)}
             onDeleteMeeting={(m) => void deleteMeeting(m)}
-            onMoveMeeting={(id, f, b) => void moveMeeting(id, f, b)}
+            onMoveMeeting={(id, f, b, shown) => void moveMeeting(id, f, b, shown)}
             onMoveFolder={(id, p, b) => void moveFolder(id, p, b)}
+            reveal={reveal}
+            onRevealed={() => setReveal(null)}
             onOpenSettings={() => {
               void flushSave()
               setView('settings')
@@ -612,6 +632,12 @@ function Shell(): React.JSX.Element {
           <motion.div key={meeting.id} className="page" {...page}>
           <MeetingView
             meeting={meeting}
+            folderPath={folderPath}
+            onRevealFolder={(id) => {
+              if (narrow) setDrawerOpen(true)
+              else setSidebarHidden(false)
+              setReveal(id)
+            }}
             settings={settings}
             sidebarHidden={!showSidebar}
             onShowSidebar={() => (narrow ? setDrawerOpen(true) : setSidebarHidden(false))}
