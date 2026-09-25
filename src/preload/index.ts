@@ -1,0 +1,83 @@
+import { contextBridge, ipcRenderer } from 'electron'
+import type {
+  AudioChannel,
+  Folder,
+  LiveEvent,
+  Meeting,
+  MeetingSummary,
+  PromptTemplate,
+  Settings,
+  SpeakerSuggestion,
+  SummaryEvent
+} from '../shared/types'
+
+function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
+  const listener = (_e: unknown, payload: T): void => cb(payload)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
+const invoke = ipcRenderer.invoke.bind(ipcRenderer)
+
+const api = {
+  getSettings: (): Promise<Settings> => invoke('settings:get'),
+  saveSettings: (s: Settings): Promise<void> => invoke('settings:save', s),
+  getDefaults: (): Promise<{ prompts: PromptTemplate[]; speakerIdPrompt: string }> =>
+    invoke('settings:defaults'),
+  appInfo: (): Promise<{ version: string; libraryDir: string }> => invoke('app:info'),
+
+  listLibrary: (): Promise<{ folders: Folder[]; meetings: MeetingSummary[] }> =>
+    invoke('library:list'),
+  openLibrary: (): Promise<string> => invoke('library:open'),
+  openExternal: (url: string): Promise<void> => invoke('app:openExternal', url),
+
+  createFolder: (name: string, parentId: string | null): Promise<Folder> =>
+    invoke('folder:create', name, parentId),
+  updateFolder: (f: Folder): Promise<void> => invoke('folder:update', f),
+  deleteFolder: (id: string): Promise<void> => invoke('folder:delete', id),
+  reorderFolders: (u: Pick<Folder, 'id' | 'parentId' | 'order'>[]): Promise<void> =>
+    invoke('folder:reorder', u),
+
+  createMeeting: (folderId: string | null): Promise<Meeting> => invoke('meeting:create', folderId),
+  getMeeting: (id: string): Promise<Meeting | null> => invoke('meeting:get', id),
+  patchMeeting: (
+    id: string,
+    patch: Pick<Partial<Meeting>, 'title' | 'sections' | 'summary' | 'summaryPromptId'>
+  ): Promise<void> => invoke('meeting:patch', id, patch),
+  deleteMeeting: (id: string): Promise<void> => invoke('meeting:delete', id),
+  reorderMeetings: (u: Pick<Meeting, 'id' | 'folderId' | 'order'>[]): Promise<void> =>
+    invoke('meeting:reorder', u),
+  retranscribe: (id: string): Promise<void> => invoke('meeting:retranscribe', id),
+  exportMeeting: (id: string): Promise<void> => invoke('meeting:export', id),
+
+  renameSpeaker: (meetingId: string, speakerId: string, name: string): Promise<void> =>
+    invoke('speaker:rename', meetingId, speakerId, name),
+  mergeSpeakers: (meetingId: string, fromId: string, intoId: string): Promise<void> =>
+    invoke('speaker:merge', meetingId, fromId, intoId),
+  reassignSegments: (meetingId: string, segmentIds: string[], speakerId: string): Promise<void> =>
+    invoke('segment:reassign', meetingId, segmentIds, speakerId),
+  editSegment: (meetingId: string, segmentId: string, text: string): Promise<void> =>
+    invoke('segment:edit', meetingId, segmentId, text),
+  suggestSpeakers: (meetingId: string): Promise<SpeakerSuggestion[]> =>
+    invoke('speaker:suggest', meetingId),
+
+  startRecording: (meetingId: string, channels: AudioChannel[]): Promise<void> =>
+    invoke('recording:start', meetingId, channels),
+  sendPcm: (channel: AudioChannel, chunk: Uint8Array): void =>
+    ipcRenderer.send('recording:pcm', channel, chunk),
+  sendWebm: (meetingId: string, chunk: Uint8Array): void =>
+    ipcRenderer.send('recording:webm', meetingId, chunk),
+  stopRecording: (meetingId: string, durationSec: number): Promise<void> =>
+    invoke('recording:stop', meetingId, durationSec),
+
+  generateSummary: (id: string, promptId: string): Promise<string> =>
+    invoke('summary:generate', id, promptId),
+
+  onLiveEvent: (cb: (e: LiveEvent) => void) => subscribe('live:event', cb),
+  onMeetingUpdated: (cb: (m: Meeting) => void) => subscribe('meeting:updated', cb),
+  onSummaryDelta: (cb: (e: SummaryEvent) => void) => subscribe('summary:delta', cb)
+}
+
+export type Api = typeof api
+
+contextBridge.exposeInMainWorld('api', api)

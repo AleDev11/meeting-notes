@@ -1,0 +1,157 @@
+import Anthropic from '@anthropic-ai/sdk'
+import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
+import OpenAI from 'openai'
+import { zodTextFormat } from 'openai/helpers/zod'
+import { z } from 'zod'
+import {
+  ME,
+  speakerLabel,
+  type Meeting,
+  type Settings,
+  type SpeakerSuggestion
+} from '../shared/types'
+
+function fmtTime(sec: number): string {
+  const m = Math.floor(sec / 60)
+  const s = Math.floor(sec % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+/** Transcripción agrupada por turnos de palabra. */
+export function transcriptText(m: Meeting, myName: string): string {
+  const lines: string[] = []
+  let lastSpeaker = ''
+  for (const s of m.transcript) {
+    const who = speakerLabel(m.speakers[s.speakerId], myName)
+    if (who === lastSpeaker) lines[lines.length - 1] += ' ' + s.text
+    else lines.push(`[${fmtTime(s.start)}] ${who}: ${s.text}`)
+    lastSpeaker = who
+  }
+  return lines.join('\n')
+}
+
+export function buildMeetingDocument(m: Meeting, myName: string): string {
+  const notes = [...m.sections]
+    .sort((a, b) => a.order - b.order)
+    .filter((s) => s.content.trim())
+    .map((s) => `### ${s.title}\n${s.content.trim()}`)
+    .join('\n\n')
+  const me = m.speakers[ME] ? `\nEl usuario de la app es "${speakerLabel(m.speakers[ME], myName)}".` : ''
+
+  return [
+    `<reunion titulo="${m.title}" fecha="${m.createdAt}">${me}`,
+    `<notas_del_usuario>\n${notes || '(sin notas)'}\n</notas_del_usuario>`,
+    `<transcripcion>\n${transcriptText(m, myName) || '(sin transcripción)'}\n</transcripcion>`,
+    `</reunion>`
+  ].join('\n\n')
+}
+
+function anthropic(s: Settings): Anthropic {
+  if (!s.keys.anthropic) throw new Error('Falta la API key de Anthropic (Configuración > API keys).')
+  return new Anthropic({ apiKey: s.keys.anthropic })
+}
+
+function openai(s: Settings): OpenAI {
+  if (!s.keys.openai) throw new Error('Falta la API key de OpenAI (Configuración > API keys).')
+  return new OpenAI({ apiKey: s.keys.openai })
+}
+
+export async function summarize(
+  m: Meeting,
+  s: Settings,
+  promptId: string,
+  onDelta: (text: string) => void
+): Promise<string> {
+  const prompt =
+    s.prompts.find((p) => p.id === promptId) ??
+    s.prompts.find((p) => p.id === s.defaultPromptId) ??
+    s.prompts[0]
+  const doc = buildMeetingDocument(m, s.myName)
+
+  if (s.llmProvider === 'openai') {
+    const stream = await openai(s).responses.create({
+      model: s.openaiModel || 'gpt-5',
+      instructions: prompt.content,
+      input: doc,
+      stream: true
+    })
+    let full = ''
+    for await (const event of stream) {
+      if (event.type === 'response.output_text.delta') {
+        full += event.delta
+        onDelta(event.delta)
+      } else if (event.type === 'error') {
+        throw new Error(event.message)
+      }
+    }
+    return full
+  }
+
+  const stream = anthropic(s).beta.messages.stream({
+    model: s.anthropicModel || 'claude-opus-5',
+    max_tokens: 64000,
+    thinking: { type: 'adaptive' },
+    // Si el modelo rechaza la petición, la API la reintenta con otro modelo.
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    system: prompt.content,
+    messages: [{ role: 'user', content: doc }]
+  })
+  stream.on('text', onDelta)
+  const message = await stream.finalMessage()
+  if (message.stop_reason === 'refusal') throw new Error('El modelo rechazó generar el resumen.')
+  return message.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+}
+
+const SuggestionsSchema = z.object({
+  suggestions: z.array(
+    z.object({
+      label: z.string().describe('Etiqueta genérica tal y como aparece, p. ej. "Persona 2"'),
+      name: z.string().describe('Nombre propuesto'),
+      reason: z.string().describe('Evidencia breve en la transcripción')
+    })
+  )
+})
+
+/** Propone nombres reales para "Persona N" a partir del contexto de la conversación. */
+export async function suggestSpeakerNames(m: Meeting, s: Settings): Promise<SpeakerSuggestion[]> {
+  const unnamed = Object.values(m.speakers).filter((sp) => !sp.name && sp.id !== ME)
+  if (unnamed.length === 0) return []
+  const labels = unnamed.map((sp) => speakerLabel(sp)).join(', ')
+  const input = `Etiquetas a identificar: ${labels}\n${
+    s.knownPeople.length ? `Personas conocidas del usuario (pueden aparecer o no): ${s.knownPeople.join(', ')}\n` : ''
+  }\n<transcripcion>\n${transcriptText(m, s.myName)}\n</transcripcion>`
+
+  let result: z.infer<typeof SuggestionsSchema> | null
+  if (s.llmProvider === 'openai') {
+    const res = await openai(s).responses.parse({
+      model: s.openaiModel || 'gpt-5',
+      instructions: s.speakerIdPrompt,
+      input,
+      text: { format: zodTextFormat(SuggestionsSchema, 'speaker_suggestions') }
+    })
+    result = res.output_parsed
+  } else {
+    const res = await anthropic(s).messages.parse({
+      model: s.anthropicModel || 'claude-opus-5',
+      max_tokens: 16000,
+      system: s.speakerIdPrompt,
+      messages: [{ role: 'user', content: input }],
+      output_config: { format: zodOutputFormat(SuggestionsSchema) }
+    })
+    if (res.stop_reason === 'refusal') throw new Error('El modelo rechazó la petición.')
+    result = res.parsed_output
+  }
+
+  const byLabel = new Map(unnamed.map((sp) => [speakerLabel(sp).toLowerCase(), sp.id]))
+  return (result?.suggestions ?? [])
+    .map((x) => ({
+      speakerId: byLabel.get(x.label.trim().toLowerCase()) ?? '',
+      name: x.name.trim(),
+      reason: x.reason
+    }))
+    .filter((x) => x.speakerId && x.name)
+}
