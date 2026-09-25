@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, session, shell } from 'electron'
 import { existsSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import icon from '../../resources/icon.png?asset'
 import {
   ME,
   OTHERS,
@@ -46,6 +47,7 @@ function createWindow(): void {
     title: 'Meeting Notes',
     autoHideMenuBar: true,
     backgroundColor: '#121214',
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,

@@ -1,3 +1,5 @@
+<img src="resources/icon.png" width="88" alt="">
+
 # Meeting Notes
 
 [![CI](https://github.com/AleDev11/meeting-notes/actions/workflows/ci.yml/badge.svg)](https://github.com/AleDev11/meeting-notes/actions/workflows/ci.yml)
