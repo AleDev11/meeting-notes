@@ -11,3 +11,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   artifactName: ${name}-setup-${version}.${ext}
+publish:
+  provider: github
+  owner: AleDev11
+  repo: meeting-notes

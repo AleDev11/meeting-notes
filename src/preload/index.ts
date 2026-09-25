@@ -8,7 +8,8 @@ import type {
   PromptTemplate,
   Settings,
   SpeakerSuggestion,
-  SummaryEvent
+  SummaryEvent,
+  UpdateState
 } from '../shared/types'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -30,6 +31,10 @@ const api = {
     invoke('library:list'),
   openLibrary: (): Promise<string> => invoke('library:open'),
   openExternal: (url: string): Promise<void> => invoke('app:openExternal', url),
+
+  getUpdateState: (): Promise<UpdateState> => invoke('update:get'),
+  checkForUpdates: (): Promise<void> => invoke('update:check'),
+  installUpdate: (): Promise<void> => invoke('update:install'),
 
   createFolder: (name: string, parentId: string | null): Promise<Folder> =>
     invoke('folder:create', name, parentId),
@@ -75,7 +80,8 @@ const api = {
 
   onLiveEvent: (cb: (e: LiveEvent) => void) => subscribe('live:event', cb),
   onMeetingUpdated: (cb: (m: Meeting) => void) => subscribe('meeting:updated', cb),
-  onSummaryDelta: (cb: (e: SummaryEvent) => void) => subscribe('summary:delta', cb)
+  onSummaryDelta: (cb: (e: SummaryEvent) => void) => subscribe('summary:delta', cb),
+  onUpdateState: (cb: (s: UpdateState) => void) => subscribe('update:state', cb)
 }
 
 export type Api = typeof api

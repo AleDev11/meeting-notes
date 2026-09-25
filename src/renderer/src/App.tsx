@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, KeyRound, PanelLeftOpen, Plus } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import type { AudioChannel, Folder, Meeting, MeetingSummary, Settings } from '@shared/types'
+import type { AudioChannel, Folder, Meeting, MeetingSummary, Settings, UpdateState } from '@shared/types'
 import { channelsFor, MeetingRecorder, type Levels } from './audio/recorder'
 import { MeetingView } from './components/MeetingView'
 import { SettingsView } from './components/SettingsView'
@@ -46,6 +46,7 @@ function Shell(): React.JSX.Element {
   const [captureMic, setCaptureMic] = useState(true)
   const [captureSystem, setCaptureSystem] = useState(true)
   const [summaryStream, setSummaryStream] = useState<{ id: string; text: string } | null>(null)
+  const [update, setUpdate] = useState<UpdateState | null>(null)
 
   const recorder = useRef<MeetingRecorder | null>(null)
   const meetingRef = useRef<Meeting | null>(null)
@@ -96,12 +97,22 @@ function Shell(): React.JSX.Element {
     const offSummary = window.api.onSummaryDelta(({ meetingId, delta }) =>
       setSummaryStream((s) => (s && s.id === meetingId ? { ...s, text: s.text + delta } : s))
     )
+    void window.api.getUpdateState().then(setUpdate)
+    const offUpdate = window.api.onUpdateState((s) => {
+      setUpdate((prev) => {
+        if (s.status === 'ready' && prev?.status !== 'ready') {
+          ui.toast(`La versión ${s.version} está lista. Se instalará al cerrar la app.`, 'info')
+        }
+        return s
+      })
+    })
     const beforeUnload = (): void => void flushSave()
     window.addEventListener('beforeunload', beforeUnload)
     return () => {
       offUpdated()
       offLive()
       offSummary()
+      offUpdate()
       window.removeEventListener('beforeunload', beforeUnload)
     }
   }, [refreshLibrary, flushSave, ui])
@@ -322,6 +333,21 @@ function Shell(): React.JSX.Element {
       }
     })
 
+  const installUpdate = async (): Promise<void> => {
+    if (!update?.version) return
+    if (recordingId) return ui.toast('Termina la grabación antes de actualizar.')
+    const ok = await ui.confirm(
+      `Actualizar a v${update.version}`,
+      'La app se cerrará y volverá a abrirse con la nueva versión.',
+      { confirmLabel: 'Reiniciar y actualizar' }
+    )
+    if (!ok) return
+    await run(async () => {
+      await flushSave()
+      await window.api.installUpdate()
+    })
+  }
+
   const saveSettings = async (s: Settings): Promise<void> => {
     await window.api.saveSettings(s)
     setSettings(s)
@@ -375,6 +401,8 @@ function Shell(): React.JSX.Element {
               setDrawerOpen(false)
             }}
             onCollapse={() => (narrow ? setDrawerOpen(false) : setSidebarHidden(true))}
+            updateReady={update?.status === 'ready' ? (update.version ?? null) : null}
+            onInstallUpdate={() => void installUpdate()}
           />
           </motion.div>
         )}
@@ -405,7 +433,13 @@ function Shell(): React.JSX.Element {
                 <PanelLeftOpen size={18} />
               </button>
             )}
-            <SettingsView settings={settings} onChange={saveSettings} />
+            <SettingsView
+              settings={settings}
+              onChange={saveSettings}
+              update={update}
+              recording={!!recordingId}
+              onInstallUpdate={() => void installUpdate()}
+            />
           </motion.div>
         ) : meeting ? (
           <motion.div key={meeting.id} className="page" {...page}>
