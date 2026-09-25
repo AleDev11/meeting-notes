@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   AudioLines,
   ChevronDown,
   Download,
+  Folder as FolderIcon,
   FolderOpen,
   Monitor,
   MonitorOff,
@@ -22,7 +23,7 @@ import {
   Square,
   Trash2
 } from 'lucide-react'
-import type { Meeting, NoteSection, ScreenSource, Settings, SpeakerSuggestion } from '@shared/types'
+import type { Folder, Meeting, NoteSection, ScreenSource, Settings, SpeakerSuggestion } from '@shared/types'
 import type { Levels, Source } from '../audio/recorder'
 import { fmtDate, fmtDuration, fmtTime } from '../util'
 import { NotesPanel } from './NotesPanel'
@@ -35,6 +36,9 @@ const FINAL_NAMES = { elevenlabs: 'ElevenLabs', deepgram: 'Deepgram', assemblyai
 
 interface Props {
   meeting: Meeting
+  /** Carpetas que contienen la reunión, de la raíz hacia dentro. */
+  folderPath: Folder[]
+  onRevealFolder: (id: string) => void
   settings: Settings
   sidebarHidden: boolean
   onShowSidebar: () => void
@@ -153,6 +157,19 @@ export function MeetingView(p: Props): React.JSX.Element {
           <div className="mv-titles">
             <input className="mv-title" value={m.title} onChange={(e) => p.onTitle(e.target.value)} aria-label="Título" />
             <div className="mv-meta">
+              {p.folderPath.length > 0 && (
+                <span className="meta-path">
+                  <FolderIcon size={11} />
+                  {p.folderPath.map((f, i) => (
+                    <Fragment key={f.id}>
+                      {i > 0 && <span className="meta-path-sep">/</span>}
+                      <button className="meta-path-seg" title="Mostrar en el panel" onClick={() => p.onRevealFolder(f.id)}>
+                        {f.name}
+                      </button>
+                    </Fragment>
+                  ))}
+                </span>
+              )}
               <span>{fmtDate(m.createdAt)}</span>
               {m.durationSec > 0 && !p.isRecording && <span>{fmtDuration(m.durationSec)}</span>}
               {m.status === 'processing' && (
