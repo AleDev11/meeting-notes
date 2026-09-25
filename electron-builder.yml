@@ -5,8 +5,10 @@ directories:
 files:
   - out/**
   - package.json
+  - resources/icon.png
 win:
   target: nsis
+  icon: resources/icon.ico
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
