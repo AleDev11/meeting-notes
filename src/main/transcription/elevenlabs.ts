@@ -73,6 +73,8 @@ export function elevenLabsLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
       case 'session_started':
       case 'committed_transcript_entities':
       case 'warning':
+      // Aviso de que no había audio pendiente al cerrar: no es un error.
+      case 'commit_throttled':
         break
       default:
         if (msg.error || msg.message) cb.onError(`ElevenLabs (${msg.message_type}): ${msg.error ?? msg.message}`)
@@ -101,7 +103,8 @@ export function elevenLabsLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
     },
     stop() {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(chunk(new Uint8Array(0), true))
+        // ElevenLabs exige al menos 0,3 s sin confirmar para cerrar el último fragmento.
+        if (bytesSent / BYTES_PER_SECOND - lastCommit >= 0.3) ws.send(chunk(new Uint8Array(0), true))
         setTimeout(() => ws.close(), 1500)
       } else ws.terminate()
     }
