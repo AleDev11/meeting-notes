@@ -19,7 +19,7 @@ export const getUpdateState = (): UpdateState => state
 
 /** Mensaje comprensible en lugar del error técnico de electron-updater. */
 function friendly(message: string): string {
-  if (/latest.yml|404/i.test(message)) return 'Se está publicando una versión nueva. Vuelve a buscar en unos minutos.'
+  if (/latest\.yml|\b404\b/i.test(message)) return 'Se está publicando una versión nueva. Vuelve a buscar en unos minutos.'
   if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ERR_INTERNET_DISCONNECTED|net::|network/i.test(message)) {
     return 'Sin conexión con el servidor de actualizaciones.'
   }
