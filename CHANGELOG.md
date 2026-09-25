@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/AleDev11/meeting-notes/compare/v0.7.1...v0.7.2) (2026-09-25)
+
+
+### Correcciones
+
+* no mostrar el aviso de ElevenLabs al detener la grabación ([#17](https://github.com/AleDev11/meeting-notes/issues/17)) ([f6b24c4](https://github.com/AleDev11/meeting-notes/commit/f6b24c42a90ba6ad1a3636dfb55d385243feed67))
+
 ## [0.7.1](https://github.com/AleDev11/meeting-notes/compare/v0.7.0...v0.7.1) (2026-09-25)
 
 
