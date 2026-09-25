@@ -133,6 +133,18 @@ export interface OllamaModel {
   parameterSize: string
 }
 
+/** Origen de una key disponible: guardada en la app, archivo .env.local o variable de entorno. */
+export type KeySource = 'saved' | 'file' | 'env'
+
+/** Resultado de comprobar una API key contra su proveedor. */
+export type KeyCheckStatus = 'valid' | 'invalid' | 'forbidden' | 'network' | 'error'
+
+export interface KeyCheck {
+  status: KeyCheckStatus
+  /** Explicación para mostrar al usuario. */
+  message: string
+}
+
 export interface OllamaStatus {
   ok: boolean
   models: OllamaModel[]
@@ -200,6 +212,8 @@ export interface Settings {
   minimizeToTray: boolean
   /** Al cerrar la ventana, seguir en la bandeja en lugar de salir. */
   closeToTray: boolean
+  /** Asistente de primer uso completado (o innecesario: ya había una key de transcripción). */
+  onboardingDone: boolean
 }
 
 /** Acciones rápidas desde la bandeja o el icono de la barra de tareas. */

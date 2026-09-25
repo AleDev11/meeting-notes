@@ -7,14 +7,13 @@ import {
   Check,
   Copy,
   Database,
-  Eye,
-  EyeOff,
   ExternalLink,
   FileText,
   FolderOpen,
   KeyRound,
   Mic,
   Plus,
+  Sparkles,
   Power,
   RefreshCw,
   RotateCcw,
@@ -36,6 +35,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { fadeUp, Field, Spinner, spring, Toggle, useUi } from './ui'
 import { CostEstimate } from './CostEstimate'
 import { GlossarySettings } from './GlossarySettings'
+import { KEYS, KeyInput, KeyStatus, useKeyChecks, type KeyInfo } from './keys'
 import { ComboInput, MultiSelect, Select } from './Select'
 import { knownModels, llmPrice } from '@shared/pricing'
 import { finalProviderFor, languageNames, LANGUAGES, liveProviderFor, needsElevenLabs } from '@shared/languages'
@@ -54,7 +54,7 @@ const TABS: { id: Tab; label: string; icon: React.JSX.Element }[] = [
 
 const PROVIDER_NAMES: Record<string, string> = { deepgram: 'Deepgram', assemblyai: 'AssemblyAI', elevenlabs: 'ElevenLabs' }
 
-function languageHint(s: Settings): string {
+export function languageHint(s: Settings): string {
   if (s.languages.length === 0) {
     return 'Se detecta el idioma de cada parte. Si se habla catalán, márcalo junto a los demás idiomas: mezclado con otros, Deepgram y AssemblyAI no lo reconocen.'
   }
@@ -112,50 +112,13 @@ const FINAL: { id: FinalProvider; name: string; desc: string; key?: keyof ApiKey
   { id: 'none', name: 'No hacer pasada final', desc: 'Se conserva la transcripción en vivo tal cual.' }
 ]
 
-const KEYS: { id: keyof ApiKeys; name: string; use: string; url: string; steps: string }[] = [
-  {
-    id: 'deepgram',
-    name: 'Deepgram',
-    use: 'Transcripción en vivo con hablantes',
-    url: 'https://console.deepgram.com/',
-    steps: 'Regístrate, entra en tu proyecto y ve a API Keys > Create a New API Key. Incluye crédito gratuito al empezar.'
-  },
-  {
-    id: 'elevenlabs',
-    name: 'ElevenLabs',
-    use: 'Transcripción en vivo y final',
-    url: 'https://elevenlabs.io/app/developers/api-keys',
-    steps: 'Inicia sesión, ve a Developers > API Keys y pulsa Create API Key. Activa el permiso de Speech to Text.'
-  },
-  {
-    id: 'assemblyai',
-    name: 'AssemblyAI',
-    use: 'Transcripción final con hablantes',
-    url: 'https://www.assemblyai.com/dashboard/api-keys',
-    steps: 'Crea una cuenta y copia la key que aparece en el panel, en la sección API Keys.'
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic (Claude)',
-    use: 'Resúmenes y deducción de nombres',
-    url: 'https://platform.claude.com/settings/keys',
-    steps: 'Inicia sesión en la consola, ve a Settings > API Keys y pulsa Create Key. Necesitas saldo en Billing.'
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI (ChatGPT)',
-    use: 'Resúmenes y deducción de nombres',
-    url: 'https://platform.openai.com/api-keys',
-    steps: 'Inicia sesión en la plataforma de desarrolladores y pulsa Create new secret key. Necesitas saldo en Billing.'
-  }
-]
-
 interface Props {
   settings: Settings
   onChange: (s: Settings) => Promise<void>
   update: UpdateState | null
   recording: boolean
   onInstallUpdate: () => void
+  onOpenOnboarding: () => void
 }
 
 function modelHint(model: string): string {
@@ -165,7 +128,7 @@ function modelHint(model: string): string {
     : 'Modelo sin precio conocido: no se incluirá en la estimación de coste.'
 }
 
-export function SettingsView({ settings, onChange, update, recording, onInstallUpdate }: Props): React.JSX.Element {
+export function SettingsView({ settings, onChange, update, recording, onInstallUpdate, onOpenOnboarding }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('general')
   const [s, setS] = useState(settings)
   const [saved, setSaved] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -186,6 +149,11 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
     }, 400)
   }
   const setKey = (k: keyof ApiKeys, v: string): void => set({ keys: { ...s.keys, [k]: v } })
+  // Guarda lo pendiente antes de abrir el asistente, que parte de la configuración guardada.
+  const openOnboarding = (): void => {
+    clearTimeout(timer.current)
+    void onChange(s).then(onOpenOnboarding)
+  }
 
   return (
     <div className="settings">
@@ -289,6 +257,19 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                   </button>
                 </div>
               </section>
+              <section className="card">
+                <h2>
+                  <Sparkles size={16} /> Asistente de configuración
+                </h2>
+                <p className="muted small">
+                  Repasa paso a paso las API keys, los idiomas y el audio, como la primera vez que abriste la app.
+                </p>
+                <div className="row-actions">
+                  <button className="btn" disabled={recording} onClick={openOnboarding}>
+                    <Sparkles size={15} /> {recording ? 'Disponible al terminar la grabación' : 'Abrir asistente'}
+                  </button>
+                </div>
+              </section>
               {update && <UpdateCard update={update} recording={recording} onInstall={onInstallUpdate} />}
             </>
           )}
@@ -387,9 +368,17 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
           {tab === 'keys' && (
             <section className="card">
               <h2>API keys</h2>
-              <p className="muted small">Se guardan cifradas con el almacén seguro de Windows y solo se envían a su proveedor.</p>
+              <p className="muted small">
+                Se guardan cifradas con el almacén seguro de Windows y solo se envían a su proveedor. ¿No sabes cuáles
+                necesitas?{' '}
+                {!recording && (
+                  <button className="link" onClick={openOnboarding}>
+                    Abre el asistente
+                  </button>
+                )}
+              </p>
               {KEYS.map((k) => (
-                <KeyField key={k.id} name={k.name} use={k.use} url={k.url} steps={k.steps} value={s.keys[k.id]} onChange={(v) => setKey(k.id, v)} />
+                <KeyField key={k.id} info={k} value={s.keys[k.id]} onChange={(v) => setKey(k.id, v)} />
               ))}
             </section>
           )}
@@ -594,26 +583,13 @@ function PromptsSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) 
   )
 }
 
-function KeyField({
-  name,
-  use,
-  url,
-  steps,
-  value,
-  onChange
-}: {
-  name: string
-  use: string
-  url: string
-  steps: string
-  value: string
-  onChange: (v: string) => void
-}): React.JSX.Element {
-  const [show, setShow] = useState(false)
+function KeyField({ info, value, onChange }: { info: KeyInfo; value: string; onChange: (v: string) => void }): React.JSX.Element {
+  const { checks, check, clear } = useKeyChecks()
+  const state = checks[info.id] ?? null
   return (
     <div className="key-field">
       <div className="key-head">
-        <span className="key-name">{name}</span>
+        <span className="key-name">{info.name}</span>
         {value ? (
           <span className="badge ok">
             <Check size={12} /> Configurada
@@ -622,31 +598,41 @@ function KeyField({
           <span className="badge">Sin configurar</span>
         )}
         <span className="grow" />
-        <button className="btn ghost sm" onClick={() => void window.api.openExternal(url)} title={url}>
+        <button className="btn ghost sm" onClick={() => void window.api.openExternal(info.url)} title={info.url}>
           {value ? 'Gestionar keys' : 'Conseguir API key'} <ExternalLink size={13} />
         </button>
       </div>
-      <span className="muted small">{use}</span>
-      {!value && <span className="key-steps">{steps}</span>}
-      <div className="key-input">
-        <input
-          type={show ? 'text' : 'password'}
+      <span className="muted small">{info.use}</span>
+      {!value && (
+        <ol className="key-steps">
+          {info.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      )}
+      <div className="key-row">
+        <KeyInput
           value={value}
-          placeholder="Pega aquí la API key"
-          spellCheck={false}
-          onChange={(e) => onChange(e.target.value.trim())}
+          state={state}
+          onChange={(v) => {
+            clear(info.id)
+            onChange(v)
+          }}
         />
-        <button className="icon-btn" onClick={() => setShow(!show)} aria-label={show ? 'Ocultar' : 'Mostrar'}>
-          {show ? <EyeOff size={16} /> : <Eye size={16} />}
+        <button className="btn" disabled={!value || state === 'checking'} onClick={() => void check(info.id, value)}>
+          Comprobar
         </button>
       </div>
+      <KeyStatus state={state} name={info.name} onRetry={() => void check(info.id, value)} />
     </div>
   )
 }
 
-function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) => void }): React.JSX.Element {
+/** Selector de micrófono con prueba de nivel. */
+export function MicField({ value, onChange }: { value: string; onChange: (deviceId: string) => void }): React.JSX.Element {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [level, setLevel] = useState<number | null>(null)
+  const [error, setError] = useState('')
   const stopTest = useRef<(() => void) | null>(null)
 
   const load = async (): Promise<void> => {
@@ -658,14 +644,15 @@ function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) =>
     return () => stopTest.current?.()
   }, [])
 
-  const test = async (): Promise<void> => {
-    if (stopTest.current) {
-      stopTest.current()
+  const start = async (deviceId: string): Promise<void> => {
+    setError('')
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: deviceId ? { exact: deviceId } : undefined } })
+    } catch {
+      setError('No se ha podido abrir el micrófono. Comprueba que está conectado y que Windows permite usarlo.')
       return
     }
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { deviceId: s.micDeviceId ? { exact: s.micDeviceId } : undefined }
-    })
     void load() // con permiso concedido ya aparecen los nombres de los dispositivos
     const ctx = new AudioContext()
     const an = ctx.createAnalyser()
@@ -690,30 +677,51 @@ function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) =>
     }
   }
 
+  const test = (): void => {
+    if (stopTest.current) stopTest.current()
+    else void start(value)
+  }
+
+  return (
+    <>
+      <Field label="Dispositivo de entrada">
+        <Select
+          value={value}
+          options={[
+            { value: '', label: 'Predeterminado del sistema' },
+            ...devices
+              .filter((d) => d.deviceId !== 'default')
+              .map((d) => ({ value: d.deviceId, label: d.label || 'Micrófono' }))
+          ]}
+          onChange={(deviceId) => {
+            onChange(deviceId)
+            // Si se estaba probando, la prueba sigue con el nuevo dispositivo.
+            if (stopTest.current) {
+              stopTest.current()
+              void start(deviceId)
+            }
+          }}
+        />
+      </Field>
+      <div className="mic-test">
+        <button className="btn sm" onClick={test}>
+          <Mic size={14} /> {level === null ? 'Probar micrófono' : 'Detener prueba'}
+        </button>
+        <span className="meter wide">
+          <span style={{ width: `${(level ?? 0) * 100}%` }} />
+        </span>
+      </div>
+      {error && <p className="warn small">{error}</p>}
+    </>
+  )
+}
+
+function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) => void }): React.JSX.Element {
   return (
     <>
       <section className="card">
         <h2>Micrófono</h2>
-        <Field label="Dispositivo de entrada">
-          <Select
-            value={s.micDeviceId}
-            options={[
-              { value: '', label: 'Predeterminado del sistema' },
-              ...devices
-                .filter((d) => d.deviceId !== 'default')
-                .map((d) => ({ value: d.deviceId, label: d.label || 'Micrófono' }))
-            ]}
-            onChange={(micDeviceId) => set({ micDeviceId })}
-          />
-        </Field>
-        <div className="mic-test">
-          <button className="btn sm" onClick={() => void test()}>
-            <Mic size={14} /> {level === null ? 'Probar micrófono' : 'Detener prueba'}
-          </button>
-          <span className="meter wide">
-            <span style={{ width: `${(level ?? 0) * 100}%` }} />
-          </span>
-        </div>
+        <MicField value={s.micDeviceId} onChange={(micDeviceId) => set({ micDeviceId })} />
       </section>
       <section className="card">
         <h2>Separación de tu voz</h2>
@@ -721,7 +729,7 @@ function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) =>
           checked={s.separateMic}
           onChange={(v) => set({ separateMic: v })}
           label="Tratar el micrófono como “yo”"
-          description="Transcribe tu micrófono y el audio de la llamada por separado: lo que digas tú siempre aparece con tu nombre y el resto de voces se separan en Persona 1, 2, 3… Recomendado con auriculares. Desactívalo en reuniones presenciales con varias personas alrededor del mismo micrófono."
+          description={SEPARATE_MIC_DESC}
         />
         <p className="muted small">
           El audio de la llamada se captura del sistema, así que funciona con cualquier aplicación: Teams, Google Meet,
@@ -731,6 +739,9 @@ function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) =>
     </>
   )
 }
+
+export const SEPARATE_MIC_DESC =
+  'Transcribe tu micrófono y el audio de la llamada por separado: lo que digas tú siempre aparece con tu nombre y el resto de voces se separan en Persona 1, 2, 3… Recomendado con auriculares. Desactívalo en reuniones presenciales con varias personas alrededor del mismo micrófono.'
 
 const gb = (bytes: number): string => `${(bytes / 1e9).toLocaleString('es-ES', { maximumFractionDigits: 1 })} GB`
 
@@ -756,7 +767,7 @@ function Command({ text }: { text: string }): React.JSX.Element {
   )
 }
 
-function OllamaSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) => void }): React.JSX.Element {
+export function OllamaSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) => void }): React.JSX.Element {
   const [status, setStatus] = useState<OllamaStatus | null>(null)
   const [checking, setChecking] = useState(false)
 

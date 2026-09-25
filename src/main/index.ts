@@ -7,6 +7,7 @@ import icon from '../../resources/icon.png?asset'
 import {
   ME,
   OTHERS,
+  type ApiKeys,
   type AudioChannel,
   type Folder,
   type LiveEvent,
@@ -17,7 +18,7 @@ import {
   type UpdateState
 } from '../shared/types'
 import { finalProviderFor, liveProviderFor } from '../shared/languages'
-import { BUILTIN_PROMPTS, DEFAULT_SPEAKER_ID_PROMPT, loadSettings, rememberPeople, saveSettings } from './settings'
+import { BUILTIN_PROMPTS, DEFAULT_SPEAKER_ID_PROMPT, keySources, loadSettings, rememberPeople, saveSettings } from './settings'
 import {
   applyFinalTranscript,
   ensureSpeaker,
@@ -32,6 +33,7 @@ import { applyLoginItem, claimSingleInstance, setupBackground, startHidden } fro
 import { classify, explain, isFatalLive, isRecoverable } from './failures'
 import { handleMediaRequests, registerMediaScheme } from './media'
 import { registerMini } from './mini'
+import { checkKey } from './keycheck'
 import { ollamaStatus } from './ollama'
 import * as store from './store'
 import { buildMeetingDocument, suggestSpeakerNames, summarize, transcriptText } from './summarize'
@@ -297,6 +299,8 @@ function registerIpc(): void {
   })
   ipcMain.handle('meeting:retryPending', () => retryPending())
   ipcMain.handle('ollama:status', (_e, url: string) => ollamaStatus(url))
+  ipcMain.handle('keys:sources', () => keySources())
+  ipcMain.handle('keys:check', (_e, provider: keyof ApiKeys, key: string) => checkKey(provider, key))
   ipcMain.handle('settings:defaults', () => ({
     prompts: BUILTIN_PROMPTS,
     speakerIdPrompt: DEFAULT_SPEAKER_ID_PROMPT

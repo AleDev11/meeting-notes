@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  ApiKeys,
   AudioChannel,
   Folder,
   LiveEvent,
   Meeting,
   MeetingSummary,
+  KeyCheck,
+  KeySource,
   OllamaStatus,
   RecordingTrack,
   ScreenSource,
@@ -32,6 +35,9 @@ const api = {
   getDefaults: (): Promise<{ prompts: PromptTemplate[]; speakerIdPrompt: string }> =>
     invoke('settings:defaults'),
   ollamaStatus: (url: string): Promise<OllamaStatus> => invoke('ollama:status', url),
+  /** Comprueba la key contra el proveedor (desde el proceso principal). */
+  keySources: (): Promise<Partial<Record<keyof ApiKeys, KeySource>>> => invoke('keys:sources'),
+  checkKey: (provider: keyof ApiKeys, key: string): Promise<KeyCheck> => invoke('keys:check', provider, key),
   appInfo: (): Promise<{ version: string; packaged: boolean; libraryDir: string }> => invoke('app:info'),
   publishRecordingState: (s: { recording: boolean; paused: boolean }): void => ipcRenderer.send('recording:state', s),
   quitApp: (): Promise<void> => invoke('app:quit'),
