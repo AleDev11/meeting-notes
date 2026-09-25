@@ -10,6 +10,7 @@ import {
   type Settings,
   type SpeakerSuggestion
 } from '../shared/types'
+import { contextFor, estimateTokens, fitTranscript, ollamaJson, ollamaStream, transcriptBudget } from './ollama'
 
 function fmtTime(sec: number): string {
   const m = Math.floor(sec / 60)
@@ -30,7 +31,8 @@ export function transcriptText(m: Meeting, myName: string): string {
   return lines.join('\n')
 }
 
-export function buildMeetingDocument(m: Meeting, myName: string): string {
+/** maxTranscriptChars: recorta la transcripción para modelos con poco contexto (Ollama). */
+export function buildMeetingDocument(m: Meeting, myName: string, maxTranscriptChars = Infinity): string {
   const notes = [...m.sections]
     .sort((a, b) => a.order - b.order)
     .filter((s) => s.content.trim())
@@ -41,7 +43,7 @@ export function buildMeetingDocument(m: Meeting, myName: string): string {
   return [
     `<reunion titulo="${m.title}" fecha="${m.createdAt}">${me}`,
     `<notas_del_usuario>\n${notes || '(sin notas)'}\n</notas_del_usuario>`,
-    `<transcripcion>\n${transcriptText(m, myName) || '(sin transcripción)'}\n</transcripcion>`,
+    `<transcripcion>\n${fitTranscript(transcriptText(m, myName), maxTranscriptChars) || '(sin transcripción)'}\n</transcripcion>`,
     `</reunion>`
   ].join('\n\n')
 }
@@ -66,6 +68,24 @@ export async function summarize(
     s.prompts.find((p) => p.id === promptId) ??
     s.prompts.find((p) => p.id === s.defaultPromptId) ??
     s.prompts[0]
+  if (s.llmProvider === 'ollama') {
+    // Se reserva sitio para un acta larga; el resto del contexto es para la reunión.
+    const output = 4096
+    const other = buildMeetingDocument(m, s.myName).length - transcriptText(m, s.myName).length + prompt.content.length
+    const doc = buildMeetingDocument(m, s.myName, transcriptBudget(other, output))
+    return ollamaStream(
+      {
+        url: s.ollamaUrl,
+        model: s.ollamaModel,
+        system: prompt.content,
+        user: doc,
+        numCtx: contextFor(estimateTokens(doc + prompt.content), output),
+        temperature: 0.3
+      },
+      onDelta
+    )
+  }
+
   const doc = buildMeetingDocument(m, s.myName)
 
   if (s.llmProvider === 'openai') {
@@ -121,12 +141,32 @@ export async function suggestSpeakerNames(m: Meeting, s: Settings): Promise<Spea
   const unnamed = Object.values(m.speakers).filter((sp) => !sp.name && sp.id !== ME)
   if (unnamed.length === 0) return []
   const labels = unnamed.map((sp) => speakerLabel(sp)).join(', ')
-  const input = `Etiquetas a identificar: ${labels}\n${
+  const header = `Etiquetas a identificar: ${labels}\n${
     s.knownPeople.length ? `Personas conocidas del usuario (pueden aparecer o no): ${s.knownPeople.join(', ')}\n` : ''
-  }\n<transcripcion>\n${transcriptText(m, s.myName)}\n</transcripcion>`
+  }`
+  const build = (maxChars = Infinity): string =>
+    `${header}\n<transcripcion>\n${fitTranscript(transcriptText(m, s.myName), maxChars)}\n</transcripcion>`
+  const input = build()
 
   let result: z.infer<typeof SuggestionsSchema> | null
-  if (s.llmProvider === 'openai') {
+  if (s.llmProvider === 'ollama') {
+    const output = 2048
+    const doc = build(transcriptBudget(header.length + s.speakerIdPrompt.length + 100, output))
+    const raw = await ollamaJson({
+      url: s.ollamaUrl,
+      model: s.ollamaModel,
+      system: s.speakerIdPrompt,
+      user: doc,
+      numCtx: contextFor(estimateTokens(doc + s.speakerIdPrompt), output),
+      format: z.toJSONSchema(SuggestionsSchema),
+      temperature: 0
+    })
+    const parsed = SuggestionsSchema.safeParse(raw)
+    if (!parsed.success) {
+      throw new Error(`El modelo "${s.ollamaModel}" ha respondido con otro formato. Prueba otra vez o con un modelo mayor.`)
+    }
+    result = parsed.data
+  } else if (s.llmProvider === 'openai') {
     const res = await openai(s).responses.parse({
       model: s.openaiModel || 'gpt-5',
       instructions: s.speakerIdPrompt,

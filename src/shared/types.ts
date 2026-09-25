@@ -94,7 +94,29 @@ export type MeetingSummary = Pick<
 
 export type LiveProvider = 'deepgram' | 'elevenlabs' | 'none'
 export type FinalProvider = 'elevenlabs' | 'deepgram' | 'assemblyai' | 'none'
-export type LlmProvider = 'anthropic' | 'openai'
+export type LlmProvider = 'anthropic' | 'openai' | 'ollama'
+
+export const DEFAULT_OLLAMA_URL = 'http://localhost:11434'
+/**
+ * Modelo local recomendado: Qwen3.5 9B (6,6 GB en Q4). Escribe bien en español, catalán e
+ * inglés y cabe en un portátil con 16 GB de RAM; con 8 GB, qwen3.5:4b (3,4 GB).
+ */
+export const RECOMMENDED_OLLAMA_MODEL = 'qwen3.5:9b'
+export const SMALL_OLLAMA_MODEL = 'qwen3.5:4b'
+
+/** Modelo instalado en Ollama. */
+export interface OllamaModel {
+  name: string
+  /** Bytes en disco. */
+  size: number
+  parameterSize: string
+}
+
+export interface OllamaStatus {
+  ok: boolean
+  models: OllamaModel[]
+  error?: string
+}
 
 export interface PromptTemplate {
   id: string
@@ -137,6 +159,9 @@ export interface Settings {
   llmProvider: LlmProvider
   anthropicModel: string
   openaiModel: string
+  /** Servidor local de Ollama: resúmenes sin coste ni API key. */
+  ollamaUrl: string
+  ollamaModel: string
   prompts: PromptTemplate[]
   defaultPromptId: string
   speakerIdPrompt: string
