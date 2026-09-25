@@ -206,13 +206,20 @@ function Shell(): React.JSX.Element {
     })
   }
 
-  const renameFolder = async (f: Folder): Promise<void> => {
-    const name = await ui.askText('Renombrar carpeta', f.name)
-    if (name) await run(async () => {
+  const renameFolder = (f: Folder, name: string): Promise<void> =>
+    run(async () => {
+      setFolders((list) => list.map((x) => (x.id === f.id ? { ...x, name } : x)))
       await window.api.updateFolder({ ...f, name })
       await refreshLibrary()
     })
-  }
+
+  /** Renombrar desde el panel lateral: la reunión abierta pasa por edit para no pisar cambios sin guardar. */
+  const renameMeeting = (id: string, title: string): Promise<void> =>
+    run(async () => {
+      if (meetingRef.current?.id === id) return edit({ title })
+      setMeetings((list) => list.map((m) => (m.id === id ? { ...m, title } : m)))
+      await window.api.patchMeeting(id, { title })
+    })
 
   const deleteFolder = async (f: Folder): Promise<void> => {
     const ok = await ui.confirm(
@@ -565,11 +572,14 @@ function Shell(): React.JSX.Element {
             meetings={meetings}
             selectedId={meeting?.id ?? null}
             recordingId={recordingId}
+            recordingPaused={paused}
+            summarizingId={summaryStream?.id ?? null}
             settingsOpen={view === 'settings'}
             onSelect={(id, query) => void openMeeting(id, query)}
             onNewMeeting={(f) => void newMeeting(f)}
             onNewFolder={(p) => void newFolder(p)}
-            onRenameFolder={(f) => void renameFolder(f)}
+            onRenameFolder={(f, name) => void renameFolder(f, name)}
+            onRenameMeeting={(id, title) => void renameMeeting(id, title)}
             onDeleteFolder={(f) => void deleteFolder(f)}
             onDeleteMeeting={(m) => void deleteMeeting(m)}
             onMoveMeeting={(id, f, b, shown) => void moveMeeting(id, f, b, shown)}

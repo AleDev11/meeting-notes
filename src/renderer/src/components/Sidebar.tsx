@@ -3,12 +3,10 @@ import { AnimatePresence, motion } from 'motion/react'
 import {
   ArrowDownToLine,
   ChevronRight,
-  Clock,
   FilePlus2,
   Folder as FolderIcon,
   FolderOpen,
   FolderPlus,
-  Loader2,
   MoreHorizontal,
   PanelLeftClose,
   Pencil,
@@ -30,12 +28,17 @@ interface Props {
   meetings: MeetingSummary[]
   selectedId: string | null
   recordingId: string | null
+  /** La grabación en curso está en pausa. */
+  recordingPaused: boolean
+  /** Reunión cuyo resumen se está generando. */
+  summarizingId: string | null
   settingsOpen: boolean
   /** highlight: texto buscado, para resaltarlo en la reunión. */
   onSelect: (id: string, highlight?: string) => void
   onNewMeeting: (folderId: string | null) => void
   onNewFolder: (parentId: string | null) => void
-  onRenameFolder: (f: Folder) => void
+  onRenameFolder: (f: Folder, name: string) => void
+  onRenameMeeting: (id: string, title: string) => void
   onDeleteFolder: (f: Folder) => void
   onDeleteMeeting: (m: MeetingSummary) => void
   /** shown: orden visible de la carpeta destino, para recolocar fuera del orden manual. */
@@ -65,6 +68,125 @@ function renderSnippet(snippet: string): React.ReactNode {
   })
 }
 
+// ---------- estado de cada reunión ----------
+
+type RowState = 'recording' | 'paused' | 'processing' | 'summary' | 'pending' | 'error' | 'done' | 'idle'
+
+/** Tooltip y, si hay que llamar la atención, subtítulo de la fila. live: tarea en marcha. */
+const STATE_INFO: Record<RowState, { tip: string; sub?: string; live?: boolean }> = {
+  recording: { tip: 'Grabando', sub: 'Grabando ahora', live: true },
+  paused: { tip: 'Grabación en pausa', sub: 'Grabación en pausa', live: true },
+  processing: { tip: 'Haciendo la transcripción final…', sub: 'Transcribiendo…', live: true },
+  summary: { tip: 'Generando resumen…', sub: 'Generando resumen…', live: true },
+  pending: { tip: 'Pendiente de transcribir: se reintentará sola', sub: 'Pendiente de transcribir' },
+  error: { tip: 'Error en la transcripción final', sub: 'Error al transcribir' },
+  done: { tip: 'Transcrita' },
+  idle: { tip: 'Sin grabar' }
+}
+
+const RING = 'M8 1.75a6.25 6.25 0 1 1 0 12.5a6.25 6.25 0 1 1 0-12.5'
+
+/** Iconos de estado circulares, al estilo de los de GitHub Actions. */
+function StateIcon({ state }: { state: RowState }): React.JSX.Element {
+  if (state === 'recording') return <span className="rec-dot" />
+  const body = ((): React.ReactNode => {
+    switch (state) {
+      case 'processing':
+      case 'summary':
+        return (
+          <>
+            <path d={RING} className="st-track" />
+            <path d="M8 1.75a6.25 6.25 0 0 1 6.25 6.25" />
+          </>
+        )
+      case 'paused':
+        return (
+          <>
+            <path d={RING} />
+            <path d="M6.5 5.75v4.5M9.5 5.75v4.5" />
+          </>
+        )
+      case 'pending':
+        return (
+          <>
+            <path d={RING} />
+            <path d="M8 4.75V8l2 1.25" />
+          </>
+        )
+      case 'error':
+        return (
+          <>
+            <circle cx="8" cy="8" r="7" className="st-fill" />
+            <path d="M5.75 5.75l4.5 4.5m0-4.5l-4.5 4.5" className="st-cut" />
+          </>
+        )
+      case 'done':
+        return (
+          <>
+            <path d={RING} />
+            <path d="M5.4 8.15l1.75 1.75L10.6 6.3" className="st-mark" />
+          </>
+        )
+      default:
+        return <path d={RING} />
+    }
+  })()
+  return (
+    <svg className={`st st-${state}`} width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+      {body}
+    </svg>
+  )
+}
+
+/** Campo para renombrar en la propia fila: Intro o salir guarda, Esc cancela. */
+function RenameInput({
+  value,
+  label,
+  onDone
+}: {
+  value: string
+  label: string
+  /** name: nuevo nombre, o null si se cancela o no cambia. via: cómo se ha cerrado. */
+  onDone: (name: string | null, via: 'key' | 'blur') => void
+}): React.JSX.Element {
+  const ref = useRef<HTMLInputElement>(null)
+  const closed = useRef(false)
+  useEffect(() => {
+    ref.current?.focus()
+    ref.current?.select()
+  }, [])
+  const finish = (save: boolean, via: 'key' | 'blur'): void => {
+    if (closed.current) return
+    closed.current = true
+    const name = ref.current?.value.trim() ?? ''
+    onDone(save && name && name !== value ? name : null, via)
+  }
+  const stop = (e: React.SyntheticEvent): void => e.stopPropagation()
+  return (
+    <input
+      ref={ref}
+      className="row-rename"
+      defaultValue={value}
+      aria-label={label}
+      spellCheck={false}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          finish(true, 'key')
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          finish(false, 'key')
+        }
+      }}
+      onBlur={() => finish(true, 'blur')}
+      onClick={stop}
+      onDoubleClick={stop}
+      onMouseDown={stop}
+    />
+  )
+}
+
 const MEETING_MIME = 'application/x-meeting'
 const FOLDER_MIME = 'application/x-folder'
 const INDENT = 16
@@ -90,6 +212,8 @@ export function Sidebar(p: Props): React.JSX.Element {
   const [dragging, setDragging] = useState<DragItem | null>(null)
   const [hint, setHint] = useState<Hint | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
+  /** Fila que se está renombrando. fromKey: se empezó con F2, y el foco vuelve a la fila al acabar. */
+  const [editing, setEditing] = useState<{ id: string; fromKey?: boolean } | null>(null)
   const treeRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragItem | null>(null)
   const planRef = useRef<DropPlan | null>(null)
@@ -164,6 +288,36 @@ export function Sidebar(p: Props): React.JSX.Element {
       else n.add(id)
       return n
     })
+
+  // ---------- renombrar ----------
+
+  const startRename = (id: string, fromKey?: boolean): void => {
+    setMenu(null)
+    setEditing({ id, fromKey })
+  }
+
+  /** Cierra la edición; si se empezó con el teclado y se cierra con él, devuelve el foco a la fila. */
+  const endRename = (id: string, via: 'key' | 'blur'): void => {
+    const fromKey = editing?.fromKey
+    setEditing((e) => (e?.id === id ? null : e))
+    if (fromKey && via === 'key') {
+      requestAnimationFrame(() =>
+        treeRef.current?.querySelector<HTMLElement>(`[data-meeting="${id}"], [data-folder-row="${id}"]`)?.focus()
+      )
+    }
+  }
+
+  /** Teclado en una fila: Intro abre, F2 renombra. */
+  const rowKeys = (e: React.KeyboardEvent, id: string, open: () => void): void => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      open()
+    } else if (e.key === 'F2') {
+      e.preventDefault()
+      startRename(id, true)
+    }
+  }
 
   // ---------- arrastrar y soltar ----------
 
@@ -340,6 +494,19 @@ export function Sidebar(p: Props): React.JSX.Element {
     (byFolder.get(folderId) ?? []).map((m) => {
       const recording = m.id === p.recordingId
       const selected = m.id === p.selectedId && !p.settingsOpen
+      const renaming = editing?.id === m.id
+      const state: RowState = recording
+        ? p.recordingPaused
+          ? 'paused'
+          : 'recording'
+        : m.id === p.summarizingId
+          ? 'summary'
+          : m.status === 'processing' || m.status === 'recording'
+            ? 'processing'
+            : m.status === 'pending' || m.status === 'error' || m.status === 'done'
+              ? m.status
+              : 'idle'
+      const info = STATE_INFO[state]
       return (
         <motion.div
           key={m.id}
@@ -350,40 +517,55 @@ export function Sidebar(p: Props): React.JSX.Element {
           transition={soft}
         >
           <div
-            className={['row row-meeting', selected ? 'selected' : '', dragging?.id === m.id ? 'dragging' : ''].join(' ')}
-            style={{ paddingLeft: 8 + depth * INDENT }}
+            className={[
+              'row row-meeting',
+              selected ? 'selected' : '',
+              renaming ? 'editing' : '',
+              dragging?.id === m.id ? 'dragging' : ''
+            ].join(' ')}
+            style={{ marginLeft: depth * INDENT }}
             data-meeting={m.id}
-            draggable
+            tabIndex={0}
+            aria-current={selected || undefined}
+            draggable={!renaming}
             onDragStart={(e) => startDrag(e, { kind: 'meeting', id: m.id })}
             onDragOver={(e) => overMeeting(e, m, depth)}
-            onClick={() => p.onSelect(m.id)}
+            // El segundo clic de un doble clic no vuelve a abrir la reunión.
+            onClick={(e) => !renaming && e.detail < 2 && p.onSelect(m.id)}
+            onKeyDown={(e) => rowKeys(e, m.id, () => p.onSelect(m.id))}
           >
             {selected && <motion.span layoutId="row-selected" className="row-selected-bg" transition={soft} />}
-            <span className="row-lead">
-              {recording ? (
-                <span className="rec-dot" />
-              ) : m.status === 'processing' ? (
-                <Loader2 size={13} className="spin" />
-              ) : m.status === 'pending' ? (
-                <Clock size={13} className="row-pending" />
-              ) : (
-                <span className="row-bullet" />
-              )}
+            <span className="row-lead" title={info.tip} aria-label={info.tip}>
+              <StateIcon state={state} />
             </span>
-            <span className="row-body">
-              <span className="row-title">{m.title}</span>
+            <span className="row-body" onDoubleClick={() => startRename(m.id)}>
+              {renaming ? (
+                <RenameInput
+                  value={m.title}
+                  label="Nombre de la reunión"
+                  onDone={(title, via) => {
+                    endRename(m.id, via)
+                    if (title) p.onRenameMeeting(m.id, title)
+                  }}
+                />
+              ) : (
+                <span className="row-title">{m.title}</span>
+              )}
               <span className="row-sub">
-                {recording ? 'Grabando ahora' : m.status === 'pending' ? 'Pendiente de transcribir' : fmtDate(m.createdAt)}
-                {!recording && m.durationSec > 0 && <> · {fmtDuration(m.durationSec)}</>}
+                {info.sub ? <span className={`row-state st-${state}`}>{info.sub}</span> : fmtDate(m.createdAt)}
+                {/* Mientras dura una tarea, su estado ocupa el subtítulo entero. */}
+                {!info.live && m.durationSec > 0 && <> · {fmtDuration(m.durationSec)}</>}
               </span>
             </span>
             <button
               className="row-action"
               title="Eliminar reunión"
+              tabIndex={-1}
               onClick={(e) => {
                 e.stopPropagation()
                 p.onDeleteMeeting(m)
               }}
+              onDoubleClick={(e) => e.stopPropagation()}
             >
               <Trash2 size={13} />
             </button>
@@ -398,6 +580,7 @@ export function Sidebar(p: Props): React.JSX.Element {
       const total = totals.get(f.id) ?? 0
       const isEmpty = !childFolders.has(f.id) && !byFolder.has(f.id)
       const into = hint?.kind === 'into' && hint.id === f.id
+      const renaming = editing?.id === f.id
       return (
         <motion.div
           key={f.id}
@@ -417,16 +600,23 @@ export function Sidebar(p: Props): React.JSX.Element {
               isOpen ? 'open' : '',
               into ? 'drop' : '',
               menu === f.id ? 'menu-open' : '',
+              renaming ? 'editing' : '',
               flash === f.id ? 'flash' : ''
             ].join(' ')}
-            style={{ paddingLeft: 4 + depth * INDENT }}
+            style={{ marginLeft: depth * INDENT }}
             data-folder-row={f.id}
+            tabIndex={0}
             aria-expanded={isOpen}
-            draggable
+            draggable={!renaming}
             onDragStart={(e) => startDrag(e, { kind: 'folder', id: f.id })}
             onDragOver={(e) => overFolder(e, f, depth, isOpen)}
-            onClick={() => toggle(f.id)}
-            onDoubleClick={() => p.onRenameFolder(f)}
+            onClick={() => !renaming && toggle(f.id)}
+            onKeyDown={(e) => rowKeys(e, f.id, () => toggle(f.id))}
+            onDoubleClick={() => {
+              if (renaming) return
+              // Los dos clics ya han plegado y desplegado la carpeta: queda como estaba.
+              startRename(f.id)
+            }}
           >
             <motion.span className="row-chev" animate={{ rotate: isOpen ? 90 : 0 }} transition={quick}>
               <ChevronRight size={13} />
@@ -436,11 +626,23 @@ export function Sidebar(p: Props): React.JSX.Element {
             ) : (
               <FolderIcon size={14} className="row-folder-icon" />
             )}
-            <span className="row-title">{f.name}</span>
+            {renaming ? (
+              <RenameInput
+                value={f.name}
+                label="Nombre de la carpeta"
+                onDone={(name, via) => {
+                  endRename(f.id, via)
+                  if (name) p.onRenameFolder(f, name)
+                }}
+              />
+            ) : (
+              <span className="row-title">{f.name}</span>
+            )}
             <span className="row-count" title={`${total} ${total === 1 ? 'reunión' : 'reuniones'}`}>
               {total || ''}
             </span>
-            <span className="row-tools">
+            {/* Los clics en las herramientas y su menú no pliegan la carpeta. */}
+            <span className="row-tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
               <button
                 className="row-action"
                 title="Nueva reunión en esta carpeta"
@@ -469,7 +671,7 @@ export function Sidebar(p: Props): React.JSX.Element {
                   <MenuItem icon={<FolderPlus size={14} />} onClick={() => { setMenu(null); p.onNewFolder(f.id) }}>
                     Nueva subcarpeta
                   </MenuItem>
-                  <MenuItem icon={<Pencil size={14} />} onClick={() => { setMenu(null); p.onRenameFolder(f) }}>
+                  <MenuItem icon={<Pencil size={14} />} onClick={() => startRename(f.id)}>
                     Renombrar
                   </MenuItem>
                   <div className="menu-sep" />
