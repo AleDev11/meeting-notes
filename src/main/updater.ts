@@ -17,11 +17,20 @@ function set(patch: Partial<UpdateState>): void {
 
 export const getUpdateState = (): UpdateState => state
 
+/** Mensaje comprensible en lugar del error técnico de electron-updater. */
+function friendly(message: string): string {
+  if (/latest\.yml|\b404\b/i.test(message)) return 'Se está publicando una versión nueva. Vuelve a buscar en unos minutos.'
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ERR_INTERNET_DISCONNECTED|net::|network/i.test(message)) {
+    return 'Sin conexión con el servidor de actualizaciones.'
+  }
+  return 'No se ha podido comprobar ahora. Inténtalo más tarde.'
+}
+
 export function checkForUpdates(): void {
   // Con la actualización ya descargada no hace falta volver a comprobar.
   if (state.status === 'unsupported' || state.status === 'ready' || state.status === 'downloading') return
   set({ status: 'checking', error: undefined })
-  autoUpdater.checkForUpdates().catch((e: Error) => set({ status: 'error', error: e.message }))
+  autoUpdater.checkForUpdates().catch((e: Error) => set({ status: 'error', error: friendly(e.message) }))
 }
 
 export function installUpdate(): void {
@@ -47,7 +56,7 @@ export function initUpdater(onChange: (s: UpdateState) => void): void {
   autoUpdater.on('update-not-available', () => set({ status: 'up-to-date' }))
   autoUpdater.on('download-progress', (p) => set({ percent: Math.round(p.percent) }))
   autoUpdater.on('update-downloaded', (info) => set({ status: 'ready', version: info.version, percent: 100 }))
-  autoUpdater.on('error', (e) => set({ status: 'error', error: e.message }))
+  autoUpdater.on('error', (e) => set({ status: 'error', error: friendly(e.message) }))
 
   setTimeout(checkForUpdates, 5000)
   setInterval(checkForUpdates, CHECK_INTERVAL)

@@ -24,6 +24,7 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -40,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ needs.release-please.outputs.sha || env.TAG }}
       - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v5
         with:
@@ -53,3 +54,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" dist/*.exe dist/*.blockmap dist/latest.yml --clobber
+      # La release se crea como borrador y se publica cuando ya tiene el instalador y latest.yml:
+      # así las apps instaladas nunca ven una versión nueva sin nada que descargar.
+      - name: Publicar la release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --draft=false --latest
