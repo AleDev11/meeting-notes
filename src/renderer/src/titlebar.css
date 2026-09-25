@@ -1,0 +1,42 @@
+/* =====================================================================
+   Barra de título propia (ventana principal)
+   La franja es transparente: se ve el color de la barra lateral y el del
+   área principal, así que parece parte de cada columna y no una barra aparte.
+   ===================================================================== */
+:root { --titlebar: 34px; }
+
+.titlebar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 40; height: var(--titlebar);
+  display: flex; justify-content: flex-end;
+  -webkit-app-region: drag; user-select: none;
+}
+
+/* El contenido empieza debajo de la franja; los fondos siguen llegando hasta arriba. */
+.app .sidebar, .app > .main { padding-top: var(--titlebar); }
+
+/* Nada que se pueda pulsar puede quedar bajo la zona de arrastre: los diálogos altos
+   y el visor de imágenes llegan a la franja. Con un diálogo abierto la ventana se
+   sigue pudiendo mover desde el fondo oscuro de arriba. */
+.win-controls, .modal, .lightbox { -webkit-app-region: no-drag; }
+
+.win-controls { display: flex; height: 100%; }
+.win-btn {
+  width: 46px; height: 100%; display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; border-radius: 0; color: var(--text-2); background: transparent; cursor: default;
+  transition: background-color 0.12s var(--ease), color 0.12s var(--ease);
+}
+.win-btn svg { display: block; }
+.win-btn .win-restore { transform: scaleX(-1); }
+.win-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.07); }
+.win-btn:active { background: rgba(255, 255, 255, 0.045); color: var(--text-2); }
+.win-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus); }
+/* Cerrar, en rojo como en Windows 11. */
+.win-btn.close:hover { color: #fff; background: #c42b1c; }
+.win-btn.close:active { color: rgba(255, 255, 255, 0.8); background: #b3271a; }
+
+.titlebar.is-inactive .win-btn:not(:hover) { color: var(--faint); }
+
+@media (prefers-color-scheme: light) {
+  .win-btn:hover { background: rgba(0, 0, 0, 0.055); }
+  .win-btn:active { background: rgba(0, 0, 0, 0.035); }
+}

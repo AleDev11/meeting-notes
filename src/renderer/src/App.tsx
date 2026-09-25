@@ -19,6 +19,7 @@ import { MeetingView } from './components/MeetingView'
 import { ScreenPrompt, type ScreenChoice } from './components/ScreenPrompt'
 import { SettingsView } from './components/SettingsView'
 import { Sidebar } from './components/Sidebar'
+import { TitleBar } from './components/TitleBar'
 import type { LivePartial } from './components/TranscriptView'
 import { Logo, soft, UiProvider, useMediaQuery, useUi } from './components/ui'
 
@@ -534,7 +535,12 @@ function Shell(): React.JSX.Element {
     setSettings(s)
   }
 
-  if (!settings) return <div className="app loading" />
+  if (!settings)
+    return (
+      <div className="app loading">
+        <TitleBar />
+      </div>
+    )
 
   const noKeys = Object.values(settings.keys).every((k) => !k)
   const showSidebar = narrow ? drawerOpen : !sidebarHidden
@@ -542,6 +548,7 @@ function Shell(): React.JSX.Element {
 
   return (
     <div className={`app ${narrow ? 'is-narrow' : ''}`}>
+      <TitleBar />
       <AnimatePresence initial={false}>
         {showSidebar && narrow && (
           <motion.div
