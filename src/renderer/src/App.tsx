@@ -313,15 +313,10 @@ function Shell(): React.JSX.Element {
       if (go) setView('settings')
       return
     }
-    if (
-      m.transcript.length &&
-      !(await ui.confirm(
-        'Volver a grabar',
-        'Esta reunión ya tiene transcripción. Si grabas de nuevo se sustituirá (las notas se mantienen).',
-        { confirmLabel: 'Grabar de nuevo', danger: true }
-      ))
-    )
-      return
+    // Una reunión, una grabación: volver a grabar mezclaría personas y perdería la anterior.
+    if ((m.hasAudio && m.durationSec > 0) || m.transcript.length) {
+      return ui.toast('Esta reunión ya está grabada. Crea una nueva para grabar otra.', 'info')
+    }
 
     // ¿Grabar también la pantalla? Se pregunta salvo que se haya pedido no volver a hacerlo.
     let withScreen = settings.recordScreen
@@ -661,6 +656,7 @@ function Shell(): React.JSX.Element {
             screenOn={screenOn}
             onToggleScreen={() => void toggleScreen()}
             onStart={() => void startRecording()}
+            onNewMeeting={() => void newMeeting(meeting.folderId)}
             onStop={() => void stopRecording()}
             partials={isRecordingThis ? Object.values(partials).filter((x): x is LivePartial => !!x) : []}
             onTitle={(title) => edit({ title })}

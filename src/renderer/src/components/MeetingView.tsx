@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   AudioLines,
+  CircleCheck,
   ChevronDown,
   Download,
   Folder as FolderIcon,
@@ -17,6 +18,7 @@ import {
   PanelLeftOpen,
   Pause,
   PictureInPicture2,
+  Plus,
   Play,
   RefreshCw,
   ScrollText,
@@ -63,6 +65,7 @@ interface Props {
   screenOn: boolean
   onToggleScreen: () => void
   onStart: () => void
+  onNewMeeting: () => void
   onStop: () => void
   partials: LivePartial[]
   onTitle: (t: string) => void
@@ -149,6 +152,9 @@ export function MeetingView(p: Props): React.JSX.Element {
       <span className={`status-tag ${m.finalized ? 'final' : 'live'}`}>{m.finalized ? 'Final' : 'En vivo'}</span>
     ) : null
 
+  // Una reunión, una grabación: después solo queda crear otra.
+  const recorded = !p.isRecording && !p.starting && ((m.hasAudio && m.durationSec > 0) || m.transcript.length > 0)
+
   return (
     <div className="meeting-view">
       <header className="mv-header">
@@ -185,6 +191,17 @@ export function MeetingView(p: Props): React.JSX.Element {
           </div>
 
           <div className="rec-controls">
+            {recorded ? (
+              <>
+                <span className="recorded-tag" title="Cada reunión tiene una sola grabación">
+                  <CircleCheck size={14} /> Grabación terminada
+                </span>
+                <button className="btn" onClick={p.onNewMeeting} title="Crear otra reunión en la misma carpeta para grabar">
+                  <Plus size={15} /> Nueva reunión
+                </button>
+              </>
+            ) : (
+              <>
             <CaptureToggle
               on={p.captureMic}
               recording={p.isRecording}
@@ -257,6 +274,8 @@ export function MeetingView(p: Props): React.JSX.Element {
                 )}
               </AnimatePresence>
             </motion.button>
+              </>
+            )}
             {p.isRecording && (
               <button className="icon-btn" onClick={p.onOpenMini} title="Modo mini: ventana flotante con la transcripción" aria-label="Modo mini">
                 <PictureInPicture2 size={16} />

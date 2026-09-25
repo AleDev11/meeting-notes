@@ -1059,3 +1059,6 @@ textarea.vocab { font-family: var(--font); font-size: 13px; }
 p.ollama-guide { display: block; padding-left: 12px; }
 .command { display: flex; align-items: center; gap: 4px; margin-top: 4px; width: fit-content; padding: 2px 2px 2px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .command code { color: var(--text); user-select: all; }
+
+.recorded-tag { display: inline-flex; align-items: center; gap: 6px; height: var(--h); padding: 0 4px; font-size: 12.5px; color: var(--muted); }
+.recorded-tag svg { color: var(--accent); }

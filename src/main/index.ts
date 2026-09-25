@@ -124,6 +124,11 @@ async function listScreens(): Promise<ScreenSource[]> {
 }
 
 function startRecording(meetingId: string, channels: AudioChannel[], withScreen = false): void {
+  const existing = store.getMeeting(meetingId)
+  // Una reunión, una grabación: grabar encima perdería la anterior y mezclaría a las personas.
+  if (store.audioTrack(meetingId, 'mix') || existing?.transcript.length) {
+    throw new Error('Esta reunión ya está grabada. Crea una nueva para grabar otra.')
+  }
   const settings = loadSettings()
   stopLiveSessions()
   const r: ActiveRecording = { meetingId, sessions: new Map(), rawToSpeaker: new Map() }
