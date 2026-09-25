@@ -1,6 +1,6 @@
 {
   "name": "meeting-notes",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Transcripción de reuniones con separación de hablantes, notas por secciones y resúmenes con IA",
   "main": "./out/main/index.js",
   "author": "Alejandro Font Muñiz",
