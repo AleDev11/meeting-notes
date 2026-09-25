@@ -405,13 +405,17 @@ export class LocalAiManager {
     mkdirSync(dir, { recursive: true })
     const file = join(dir, 'OllamaSetup.exe')
     const meter = new SpeedMeter(this.d.now)
+    let last = { done: 0, total: 0 }
     try {
       await downloadFile(
         this.d.fetch,
         this.d.installerUrl,
         file,
         signal,
-        (done, total) => this.set({ progress: this.progress(meter, done, total) }, true),
+        (done, total) => {
+          last = { done, total }
+          this.set({ progress: this.progress(meter, done, total) }, true)
+        },
         async (total) => {
           // El instalador más lo que ocupa Ollama instalado (librerías de GPU incluidas).
           const need = (total || 1.6 * GB) * 3
@@ -421,6 +425,8 @@ export class LocalAiManager {
           }
         }
       )
+      // Los avisos de progreso van espaciados: el último (100 %) se envía siempre.
+      this.set({ progress: this.progress(meter, last.done, last.total) })
     } catch (err) {
       await fsp.rm(dir, { recursive: true, force: true }).catch(() => {})
       throw err
@@ -556,6 +562,8 @@ export class LocalAiManager {
       throw new LocalAiError('pull', `La descarga del modelo se ha cortado. Pulsa Reintentar: continuará donde se quedó.`)
     }
     if (!success) throw new LocalAiError('pull', 'La descarga del modelo se ha cortado. Pulsa Reintentar: continuará donde se quedó.')
+    // El último aviso de progreso podía quedar pendiente: se envía completo antes de pasar a "Listo".
+    if (this.state.progress) this.set({ progress: { ...this.state.progress, done: this.state.progress.total } })
   }
 }
 
