@@ -36,6 +36,7 @@ import { CostEstimate } from './CostEstimate'
 import { GlossarySettings } from './GlossarySettings'
 import { KEYS, KeyInput, KeyStatus, useKeyChecks, type KeyInfo } from './keys'
 import { ComboInput, MultiSelect, Select } from './Select'
+import { micLabel } from '../audio/recorder'
 import { knownModels, llmPrice } from '@shared/pricing'
 import { finalProviderFor, languageNames, LANGUAGES, liveProviderFor, needsElevenLabs } from '@shared/languages'
 
@@ -753,7 +754,10 @@ function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) =>
     <>
       <section className="card">
         <h2>Micrófono</h2>
-        <MicField value={s.micDeviceId} onChange={(micDeviceId) => set({ micDeviceId })} />
+        <MicField
+          value={s.micDeviceId}
+          onChange={(micDeviceId) => void micLabel(micDeviceId).then((micDeviceLabel) => set({ micDeviceId, micDeviceLabel }))}
+        />
       </section>
       <section className="card">
         <h2>Separación de tu voz</h2>

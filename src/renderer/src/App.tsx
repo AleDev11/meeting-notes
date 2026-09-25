@@ -14,7 +14,7 @@ import {
   type SourceState,
   type UpdateState
 } from '@shared/types'
-import { channelsFor, MeetingRecorder, type Levels, type Source } from './audio/recorder'
+import { channelsFor, MeetingRecorder, micLabel, type Levels, type Source } from './audio/recorder'
 import { MeetingView } from './components/MeetingView'
 import { Onboarding } from './components/Onboarding'
 import { ScreenPrompt, type ScreenChoice } from './components/ScreenPrompt'
@@ -360,6 +360,7 @@ function Shell(): React.JSX.Element {
         mic: captureMic,
         system: captureSystem,
         micDeviceId: settings.micDeviceId,
+        micDeviceLabel: settings.micDeviceLabel,
         separate: settings.separateMic,
         screen: withScreen
       }
@@ -375,6 +376,12 @@ function Shell(): React.JSX.Element {
         throw e
       }
       recorder.current = rec
+      rec.warnings.forEach((w) => ui.toast(w, 'info'))
+      // Encontrado por nombre con otro identificador, o ya no existe (se usa el predeterminado):
+      // se guarda lo que se ha usado para no repetir la búsqueda ni el aviso.
+      if (captureMic && rec.micDeviceId !== settings.micDeviceId) {
+        void saveSettings({ ...settings, micDeviceId: rec.micDeviceId })
+      }
       setScreenOn(withScreen)
       setLiveNotice(null)
       setPaused(false)
@@ -722,7 +729,9 @@ function Shell(): React.JSX.Element {
             captureSystem={captureSystem}
             onCaptureMic={setCaptureMic}
             onCaptureSystem={setCaptureSystem}
-            onMicDevice={(micDeviceId) => void saveSettings({ ...settings, micDeviceId })}
+            onMicDevice={(micDeviceId) =>
+              void micLabel(micDeviceId).then((micDeviceLabel) => saveSettings({ ...settings, micDeviceId, micDeviceLabel }))
+            }
             onScreen={(patch) => void saveSettings({ ...settings, ...patch })}
             screenOn={screenOn}
             onToggleScreen={() => void toggleScreen()}
