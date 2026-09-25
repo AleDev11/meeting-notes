@@ -35,6 +35,7 @@ import { registerMini } from './mini'
 import { ollamaStatus } from './ollama'
 import * as store from './store'
 import { buildMeetingDocument, suggestSpeakerNames, summarize, transcriptText } from './summarize'
+import { registerWindowControls, watchMaximize } from './titlebar'
 import { createLiveSession, transcribeFile } from './transcription'
 import type { LiveSession, RawSegment } from './transcription/types'
 import { checkForUpdates, getUpdateState, initUpdater, installUpdate } from './updater'
@@ -60,6 +61,9 @@ function createWindow(): void {
     minWidth: 380,
     minHeight: 560,
     title: 'Meeting Notes',
+    // Sin la barra de título de Windows: la dibuja la app (TitleBar). Se conservan el
+    // borde para redimensionar, el acople a los lados de la pantalla y la sombra.
+    titleBarStyle: 'hidden',
     autoHideMenuBar: true,
     backgroundColor: '#121214',
     icon,
@@ -72,6 +76,7 @@ function createWindow(): void {
       backgroundThrottling: false
     }
   })
+  watchMaximize(win)
   if (process.env['ELECTRON_RENDERER_URL']) win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   else win.loadFile(join(__dirname, '../renderer/index.html'))
 }
@@ -485,6 +490,7 @@ app.whenReady().then(() => {
   if (!primary) return
   store.initStore()
   registerIpc()
+  registerWindowControls()
   registerMini(() => win, icon)
   handleMediaRequests()
 

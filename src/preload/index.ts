@@ -109,7 +109,14 @@ const api = {
   sendMiniCommand: (cmd: MiniCommand): void => ipcRenderer.send('mini:command', cmd),
   onMiniState: (cb: (s: MiniState) => void) => subscribe('mini:state', cb),
   onMiniCommand: (cb: (cmd: MiniCommand) => void) => subscribe('mini:command', cb),
-  onMiniClosed: (cb: () => void) => subscribe('mini:closed', cb)
+  onMiniClosed: (cb: () => void) => subscribe('mini:closed', cb),
+
+  // barra de título propia
+  minimizeWindow: (): void => ipcRenderer.send('window:minimize'),
+  toggleMaximizeWindow: (): void => ipcRenderer.send('window:toggleMaximize'),
+  closeWindow: (): void => ipcRenderer.send('window:close'),
+  isWindowMaximized: (): Promise<boolean> => invoke('window:isMaximized'),
+  onWindowMaximized: (cb: (maximized: boolean) => void) => subscribe('window:maximized', cb)
 }
 
 export type Api = typeof api
