@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0](https://github.com/AleDev11/meeting-notes/compare/v0.6.0...v0.7.0) (2026-09-25)
+
+
+### Novedades
+
+* activar la IA local con un clic ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* asistente de primer uso ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* barra de título propia ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* barra lateral más pulida, renombrar y estados ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* carpetas más claras y arrastrar con indicador ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* glosario de jergas para transcripción y resúmenes ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* imágenes en las notas ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* reconocer el catalán en reuniones multilingües ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* reproductor de vídeo y audio renovado ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* resúmenes y nombres con modelos locales (Ollama) ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+* una sola grabación por reunión ([eb70855](https://github.com/AleDev11/meeting-notes/commit/eb708557346d9b113dfc873a5c49a6317f2ca329))
+
 ## [0.6.0](https://github.com/AleDev11/meeting-notes/compare/v0.5.0...v0.6.0) (2026-09-25)
 
 
