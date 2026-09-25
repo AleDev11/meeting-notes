@@ -648,6 +648,7 @@ function Shell(): React.JSX.Element {
             onSuggestSpeakers={() => window.api.suggestSpeakers(meeting.id)}
             onReassign={(ids, sp) => void run(() => window.api.reassignSegments(meeting.id, ids, sp))}
             onEditSegment={(segId, text) => void run(() => window.api.editSegment(meeting.id, segId, text))}
+            onGlossary={(glossary) => void saveSettings({ ...settings, glossary })}
             onRetranscribe={() => void run(() => window.api.retranscribe(meeting.id))}
             onGenerateSummary={(id) => void generateSummary(id)}
             summaryStreaming={summaryStream?.id === meeting.id ? summaryStream.text : null}

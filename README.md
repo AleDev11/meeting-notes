@@ -35,7 +35,7 @@ Funciona con Teams, Google Meet, Zoom, Discord o cualquier aplicación que suene
   idioma y se marca.
 - **Personas.** Renombra, fusiona, reasigna intervenciones o deja que la IA deduzca los nombres a partir de la
   conversación.
-- **Vocabulario propio.** Nombres, productos y siglas que se reconocen sin errores.
+- **Jergas y vocabulario.** Nombres, productos y siglas que se reconocen sin errores, con su significado para que la IA entienda la jerga (“pre” = preproducción). Se añaden también seleccionando texto en la transcripción.
 
 ## Del audio al acta
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ArrowDownToLine,
   AudioLines,
+  BookA,
   Brain,
   Check,
   Copy,
@@ -32,15 +33,17 @@ import type {
 import { AnimatePresence, motion } from 'motion/react'
 import { fadeUp, Field, Spinner, spring, Toggle, useUi } from './ui'
 import { CostEstimate } from './CostEstimate'
+import { GlossarySettings } from './GlossarySettings'
 import { ComboInput, Select } from './Select'
 import { knownModels, llmPrice } from '@shared/pricing'
 
-type Tab = 'general' | 'audio' | 'transcription' | 'ai' | 'prompts' | 'keys'
+type Tab = 'general' | 'audio' | 'transcription' | 'glossary' | 'ai' | 'prompts' | 'keys'
 
 const TABS: { id: Tab; label: string; icon: React.JSX.Element }[] = [
   { id: 'general', label: 'General', icon: <SlidersHorizontal size={16} /> },
   { id: 'audio', label: 'Audio', icon: <Mic size={16} /> },
   { id: 'transcription', label: 'Transcripción y hablantes', icon: <AudioLines size={16} /> },
+  { id: 'glossary', label: 'Jergas y vocabulario', icon: <BookA size={16} /> },
   { id: 'ai', label: 'IA para resúmenes', icon: <Brain size={16} /> },
   { id: 'prompts', label: 'Prompts', icon: <FileText size={16} /> },
   { id: 'keys', label: 'API keys', icon: <KeyRound size={16} /> }
@@ -312,18 +315,21 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                     onChange={(e) => set({ expectedSpeakers: e.target.value ? Number(e.target.value) : null })}
                   />
                 </Field>
-                <Field
-                  label="Vocabulario"
-                  hint="Nombres propios, productos, siglas o términos técnicos que se dicen en tus reuniones, separados por comas. También se usan los nombres de las personas conocidas."
-                >
-                  <VocabularyInput value={s.vocabulary} onChange={(vocabulary) => set({ vocabulary })} />
-                </Field>
+                <p className="muted small">
+                  Para que se reconozcan mejor productos, siglas o jergas, añádelos en{' '}
+                  <button className="link" onClick={() => setTab('glossary')}>
+                    Jergas y vocabulario
+                  </button>
+                  . También se usan los nombres de las personas conocidas.
+                </p>
                 <Field label="Modelo de Deepgram">
                   <input value={s.deepgramModel} onChange={(e) => set({ deepgramModel: e.target.value })} />
                 </Field>
               </section>
             </>
           )}
+
+          {tab === 'glossary' && <GlossarySettings glossary={s.glossary} onChange={(glossary) => set({ glossary })} />}
 
           {tab === 'ai' && (
             <>
@@ -435,26 +441,6 @@ function UpdateCard({
         )}
       </div>
     </section>
-  )
-}
-
-/** Lista separada por comas; se normaliza al salir del campo para no molestar al escribir. */
-function VocabularyInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }): React.JSX.Element {
-  const [text, setText] = useState(value.join(', '))
-  const commit = (): void => {
-    const terms = [...new Set(text.split(/[,\n]/).map((t) => t.trim()).filter(Boolean))]
-    setText(terms.join(', '))
-    if (terms.join('|') !== value.join('|')) onChange(terms)
-  }
-  return (
-    <textarea
-      className="vocab"
-      rows={3}
-      value={text}
-      placeholder="Kubernetes, Acme, OKR, Núria…"
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-    />
   )
 }
 

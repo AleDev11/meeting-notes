@@ -764,7 +764,6 @@ select {
 .seg.playing { background: var(--accent-soft); color: var(--text); }
 .lang-tag { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 4px; background: var(--surface-3); color: var(--text-2); }
 .transcript.has-player .jump-bottom { bottom: 64px; }
-textarea.vocab { font-family: var(--font); font-size: 13px; }
 
 /* ---- selector propio ---- */
 .select { display: inline-flex; min-width: 0; }

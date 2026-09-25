@@ -68,6 +68,7 @@ interface Props {
   onSuggestSpeakers: () => Promise<SpeakerSuggestion[]>
   onReassign: (segmentIds: string[], speakerId: string) => void
   onEditSegment: (segmentId: string, text: string) => void
+  onGlossary: (glossary: Settings['glossary']) => void
   onRetranscribe: () => void
   onGenerateSummary: (promptId: string) => void
   summaryStreaming: string | null
@@ -107,6 +108,8 @@ export function MeetingView(p: Props): React.JSX.Element {
       onEditSegment={p.onEditSegment}
       onRetranscribe={p.onRetranscribe}
       highlight={p.highlight}
+      glossary={p.settings.glossary}
+      onGlossary={p.onGlossary}
     />
   )
   const notes = <NotesPanel sections={m.sections} elapsedSec={p.isRecording ? p.elapsed : null} onChange={p.onSections} />

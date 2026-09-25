@@ -3,9 +3,11 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import OpenAI from 'openai'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
+import { glossaryBlock } from '../shared/glossary'
 import {
   ME,
   speakerLabel,
+  type GlossaryEntry,
   type Meeting,
   type Settings,
   type SpeakerSuggestion
@@ -30,18 +32,21 @@ export function transcriptText(m: Meeting, myName: string): string {
   return lines.join('\n')
 }
 
-export function buildMeetingDocument(m: Meeting, myName: string): string {
+export function buildMeetingDocument(m: Meeting, myName: string, glossary: GlossaryEntry[] = []): string {
   const notes = [...m.sections]
     .sort((a, b) => a.order - b.order)
     .filter((s) => s.content.trim())
     .map((s) => `### ${s.title}\n${s.content.trim()}`)
     .join('\n\n')
   const me = m.speakers[ME] ? `\nEl usuario de la app es "${speakerLabel(m.speakers[ME], myName)}".` : ''
+  const transcript = transcriptText(m, myName)
+  const glosario = glossaryBlock(glossary, `${m.title}\n${notes}\n${transcript}`)
 
   return [
     `<reunion titulo="${m.title}" fecha="${m.createdAt}">${me}`,
+    ...(glosario ? [glosario] : []),
     `<notas_del_usuario>\n${notes || '(sin notas)'}\n</notas_del_usuario>`,
-    `<transcripcion>\n${transcriptText(m, myName) || '(sin transcripción)'}\n</transcripcion>`,
+    `<transcripcion>\n${transcript || '(sin transcripción)'}\n</transcripcion>`,
     `</reunion>`
   ].join('\n\n')
 }
@@ -66,7 +71,7 @@ export async function summarize(
     s.prompts.find((p) => p.id === promptId) ??
     s.prompts.find((p) => p.id === s.defaultPromptId) ??
     s.prompts[0]
-  const doc = buildMeetingDocument(m, s.myName)
+  const doc = buildMeetingDocument(m, s.myName, s.glossary)
 
   if (s.llmProvider === 'openai') {
     const stream = await openai(s).responses.create({
@@ -121,9 +126,12 @@ export async function suggestSpeakerNames(m: Meeting, s: Settings): Promise<Spea
   const unnamed = Object.values(m.speakers).filter((sp) => !sp.name && sp.id !== ME)
   if (unnamed.length === 0) return []
   const labels = unnamed.map((sp) => speakerLabel(sp)).join(', ')
+  const transcript = transcriptText(m, s.myName)
+  // Así la jerga ("pre", "pro"…) no se confunde con nombres de persona.
+  const glosario = glossaryBlock(s.glossary, transcript)
   const input = `Etiquetas a identificar: ${labels}\n${
     s.knownPeople.length ? `Personas conocidas del usuario (pueden aparecer o no): ${s.knownPeople.join(', ')}\n` : ''
-  }\n<transcripcion>\n${transcriptText(m, s.myName)}\n</transcripcion>`
+  }${glosario ? `\n${glosario}\n` : ''}\n<transcripcion>\n${transcript}\n</transcripcion>`
 
   let result: z.infer<typeof SuggestionsSchema> | null
   if (s.llmProvider === 'openai') {

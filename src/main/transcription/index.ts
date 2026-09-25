@@ -10,10 +10,13 @@ export const LIVE_PROVIDER_INFO = {
   elevenlabs: { diarizes: false, name: 'ElevenLabs' }
 } as const
 
-/** Nombres y términos que el reconocimiento debe esperar (personas conocidas y vocabulario). */
+/** Nombres y términos que el reconocimiento debe esperar (jergas y personas conocidas). */
 export function keytermsFor(s: Settings): string[] {
-  const terms = [s.myName, ...s.knownPeople, ...s.vocabulary].map((t) => t.trim()).filter((t) => t && t.length < 50)
-  return [...new Set(terms)]
+  const terms = [s.myName, ...s.glossary.map((g) => g.term), ...s.knownPeople]
+    .map((t) => t.trim())
+    .filter((t) => t && t.length < 50)
+  // Los proveedores limitan el número de términos: primero los explícitos del usuario.
+  return [...new Set(terms)].slice(0, 100)
 }
 
 const MAX_RETRIES = 5

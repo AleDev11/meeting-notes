@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { normalizeGlossary } from '../shared/glossary'
 import type { ApiKeys, PromptTemplate, Settings } from '../shared/types'
 
 const COMMON_RULES = `Usa los nombres de los hablantes tal y como aparecen. No inventes información que no esté en la transcripción o en las notas. Responde en el idioma de la reunión, en Markdown.`
@@ -112,7 +113,7 @@ const defaults: Settings = {
   finalProvider: 'elevenlabs',
   expectedSpeakers: null,
   deepgramModel: 'nova-3',
-  vocabulary: [],
+  glossary: [],
   llmProvider: 'anthropic',
   anthropicModel: 'claude-opus-5',
   openaiModel: 'gpt-5',
@@ -186,9 +187,15 @@ export function loadSettings(): Settings {
   let keys = { ...defaultKeys, ...(raw.keys ?? {}) }
   for (const k of Object.keys(keys) as (keyof ApiKeys)[]) keys[k] = decrypt(keys[k])
   keys = withEnvKeys(keys)
-  const s: Settings = { ...structuredClone(defaults), ...raw, keys }
+  const { vocabulary, ...rest } = raw as Partial<Settings> & { vocabulary?: string[] }
+  const s: Settings = { ...structuredClone(defaults), ...rest, keys }
   // "Detectar automáticamente" se guardaba como cadena vacía.
   if (!s.language) s.language = 'multi'
+  // El antiguo vocabulario (solo términos) pasa al glosario sin significado.
+  s.glossary = normalizeGlossary([
+    ...(Array.isArray(s.glossary) ? s.glossary : []),
+    ...(vocabulary ?? []).map((term) => ({ term, meaning: '' }))
+  ])
   // Asegura que las plantillas integradas existen aunque el usuario borre alguna.
   for (const p of BUILTIN_PROMPTS) {
     if (!s.prompts.some((x) => x.id === p.id)) s.prompts.push(p)

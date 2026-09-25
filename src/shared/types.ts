@@ -103,6 +103,12 @@ export interface PromptTemplate {
   builtin?: boolean
 }
 
+/** Término de la jerga del usuario; el significado puede quedar vacío. */
+export interface GlossaryEntry {
+  term: string
+  meaning: string
+}
+
 export interface ApiKeys {
   elevenlabs: string
   deepgram: string
@@ -131,8 +137,8 @@ export interface Settings {
   /** Personas en la reunión, contándote a ti. */
   expectedSpeakers: number | null
   deepgramModel: string
-  /** Nombres propios y términos que el reconocimiento de voz debe esperar. */
-  vocabulary: string[]
+  /** Jergas y vocabulario: se esperan al transcribir y se explican a la IA. */
+  glossary: GlossaryEntry[]
   // IA
   llmProvider: LlmProvider
   anthropicModel: string

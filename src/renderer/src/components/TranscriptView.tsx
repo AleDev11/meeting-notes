@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { AlertCircle, ArrowDown, AudioLines, Clock, Play, RefreshCw, UserPlus, UserRound, WifiOff } from 'lucide-react'
-import { ME, OTHERS, speakerLabel, type Meeting, type TranscriptSegment } from '@shared/types'
+import { ME, OTHERS, speakerLabel, type GlossaryEntry, type Meeting, type TranscriptSegment } from '@shared/types'
 import { fmtTime, highlightParts, speakerColor } from '../util'
 import { AudioPlayer, type PlayerHandle } from './AudioPlayer'
 import { Avatar } from './SpeakersBar'
+import { GlossText, SelectionMenu, splitGloss, useGlossMarks } from './TranscriptGlossary'
 import { Popover, soft, Spinner } from './ui'
 
 export interface LivePartial {
@@ -24,6 +25,8 @@ interface Props {
   onRetranscribe: () => void
   /** Texto buscado: se resalta y se salta a la primera coincidencia. */
   highlight?: string
+  glossary: GlossaryEntry[]
+  onGlossary: (g: GlossaryEntry[]) => void
 }
 
 interface Turn {
@@ -69,6 +72,7 @@ export function TranscriptView(p: Props): React.JSX.Element {
   const [menu, setMenu] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const gloss = useGlossMarks(p.glossary, m.transcript)
 
   useLayoutEffect(() => {
     const el = scroller.current
@@ -265,11 +269,19 @@ export function TranscriptView(p: Props): React.JSX.Element {
                               }}
                               title="Doble clic para corregir el texto"
                             >
-                              {p.highlight
-                                ? highlightParts(s.text, p.highlight).map((part, i) =>
-                                    part.hit ? <mark key={i}>{part.text}</mark> : part.text
+                              {p.highlight ? (
+                                highlightParts(s.text, p.highlight).map((part, i) =>
+                                  part.hit ? (
+                                    <mark key={i}>{part.text}</mark>
+                                  ) : (
+                                    <GlossText key={i} parts={splitGloss(part.text, gloss.find, gloss.meanings)} />
                                   )
-                                : s.text}{' '}
+                                )
+                              ) : gloss.bySegment.has(s.id) ? (
+                                <GlossText parts={gloss.bySegment.get(s.id)!} />
+                              ) : (
+                                s.text
+                              )}{' '}
                             </span>
                           )
                         )}
@@ -301,6 +313,8 @@ export function TranscriptView(p: Props): React.JSX.Element {
           </div>
         )}
       </div>
+
+      <SelectionMenu container={scroller} glossary={p.glossary} onGlossary={p.onGlossary} />
 
       {canPlay && (
         <AudioPlayer
