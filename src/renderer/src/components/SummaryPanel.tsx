@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { Check, Copy, Download, Eye, Pencil, RefreshCw, ScrollText } from 'lucide-react'
 import type { Meeting, PromptTemplate } from '@shared/types'
 import { soft, Spinner, useUi } from './ui'
+import { Select } from './Select'
 
 interface Props {
   meeting: Meeting
@@ -36,13 +37,13 @@ export function SummaryPanel(p: Props): React.JSX.Element {
   return (
     <div className="summary">
       <div className="summary-bar">
-        <select value={promptId} onChange={(e) => setPromptId(e.target.value)} disabled={busy} title="Tipo de resumen">
-          {p.prompts.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
+        <Select
+          value={promptId}
+          disabled={busy}
+          title="Tipo de resumen"
+          options={p.prompts.map((t) => ({ value: t.id, label: t.name }))}
+          onChange={setPromptId}
+        />
         <button
           className="btn primary"
           disabled={busy || p.recording || !hasContent}

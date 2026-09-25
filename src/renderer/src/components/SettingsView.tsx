@@ -31,6 +31,7 @@ import type {
 import { AnimatePresence, motion } from 'motion/react'
 import { fadeUp, Field, Spinner, spring, Toggle, useUi } from './ui'
 import { CostEstimate } from './CostEstimate'
+import { ComboInput, Select } from './Select'
 import { knownModels, llmPrice } from '@shared/pricing'
 
 type Tab = 'general' | 'audio' | 'transcription' | 'ai' | 'prompts' | 'keys'
@@ -207,13 +208,11 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                   <input value={s.myName} placeholder="Yo" onChange={(e) => set({ myName: e.target.value })} />
                 </Field>
                 <Field label="Idioma de las reuniones" hint={languageHint(s)}>
-                  <select value={s.language} onChange={(e) => set({ language: e.target.value })}>
-                    {LANGUAGES.map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={s.language}
+                    options={LANGUAGES.map(([value, label]) => ({ value, label }))}
+                    onChange={(language) => set({ language })}
+                  />
                 </Field>
               </section>
               <section className="card">
@@ -315,19 +314,13 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
               </div>
               {s.llmProvider === 'anthropic' ? (
                 <Field label="Modelo de Claude" hint={modelHint(s.anthropicModel)}>
-                  <input list="models-anthropic" value={s.anthropicModel} onChange={(e) => set({ anthropicModel: e.target.value })} />
+                  <ComboInput value={s.anthropicModel} suggestions={knownModels('claude')} onChange={(anthropicModel) => set({ anthropicModel })} />
                 </Field>
               ) : (
                 <Field label="Modelo de OpenAI" hint={modelHint(s.openaiModel)}>
-                  <input list="models-openai" value={s.openaiModel} onChange={(e) => set({ openaiModel: e.target.value })} />
+                  <ComboInput value={s.openaiModel} suggestions={knownModels('gpt')} onChange={(openaiModel) => set({ openaiModel })} />
                 </Field>
               )}
-              <datalist id="models-anthropic">
-                {knownModels('claude').map((m) => <option key={m} value={m} />)}
-              </datalist>
-              <datalist id="models-openai">
-                {knownModels('gpt').map((m) => <option key={m} value={m} />)}
-              </datalist>
               {!s.keys[s.llmProvider] && (
                 <p className="warn small">
                   Falta la API key de {s.llmProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'}.{' '}
@@ -673,14 +666,16 @@ function AudioSettings({ s, set }: { s: Settings; set: (p: Partial<Settings>) =>
       <section className="card">
         <h2>Micrófono</h2>
         <Field label="Dispositivo de entrada">
-          <select value={s.micDeviceId} onChange={(e) => set({ micDeviceId: e.target.value })}>
-            <option value="">Predeterminado del sistema</option>
-            {devices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || 'Micrófono'}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={s.micDeviceId}
+            options={[
+              { value: '', label: 'Predeterminado del sistema' },
+              ...devices
+                .filter((d) => d.deviceId !== 'default')
+                .map((d) => ({ value: d.deviceId, label: d.label || 'Micrófono' }))
+            ]}
+            onChange={(micDeviceId) => set({ micDeviceId })}
+          />
         </Field>
         <div className="mic-test">
           <button className="btn sm" onClick={() => void test()}>
