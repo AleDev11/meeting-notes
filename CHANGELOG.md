@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/AleDev11/meeting-notes/compare/v0.3.0...v0.4.0) (2026-09-25)
+
+
+### Novedades
+
+* pistas separadas, varios idiomas, modo mini y reproducción de la grabación ([#5](https://github.com/AleDev11/meeting-notes/issues/5)) ([e9bbfae](https://github.com/AleDev11/meeting-notes/commit/e9bbfae8a8304f6532650d0cf7ccf289562f582d))
+
 ## [0.3.0](https://github.com/AleDev11/meeting-notes/compare/v0.2.0...v0.3.0) (2026-09-25)
 
 
