@@ -1,3 +1,5 @@
+<!-- El título debe seguir Conventional Commits, p. ej. "feat: exportar actas a PDF" o "fix(deepgram): reconexión tras corte" -->
+
 ## Cambios
 
 ## Cómo se ha probado

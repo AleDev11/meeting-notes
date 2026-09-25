@@ -26,9 +26,25 @@ propia app o en `.env.local` (ver `.env.example`).
 2. Mantén los cambios acotados a un solo tema.
 3. Comprueba que `bun run typecheck` pasa.
 4. Describe qué cambia y cómo lo has probado.
+5. Usa un título que siga [Conventional Commits](https://www.conventionalcommits.org/es/v1.0.0/). Las PR se
+   integran con squash y ese título pasa a ser el commit en `main`.
 
 Si el cambio es grande (un proveedor nuevo, cambios en el formato de la biblioteca), abre antes una issue para
 comentarlo.
+
+## Versiones
+
+Las versiones siguen [SemVer](https://semver.org/lang/es/) y se generan a partir de los commits de `main`:
+
+| Tipo | Ejemplo | Efecto |
+| --- | --- | --- |
+| `fix` | `fix: la pasada final pierde el último turno` | versión de parche |
+| `feat` | `feat: exportar actas a PDF` | versión menor |
+| `feat!` o `BREAKING CHANGE:` | `feat!: nuevo formato de biblioteca` | versión mayor |
+| `docs`, `refactor`, `ci`, `chore`… | `docs: corregir requisitos` | sin release |
+
+Cada cambio en `main` actualiza una PR de release con la nueva versión y el `CHANGELOG.md`. Al integrarla se
+publica la release en GitHub con el instalador.
 
 ## Estilo
 

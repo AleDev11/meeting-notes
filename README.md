@@ -1,6 +1,7 @@
 # Meeting Notes
 
 [![CI](https://github.com/AleDev11/meeting-notes/actions/workflows/ci.yml/badge.svg)](https://github.com/AleDev11/meeting-notes/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/AleDev11/meeting-notes)](https://github.com/AleDev11/meeting-notes/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Aplicación de escritorio para Windows que transcribe reuniones de cualquier aplicación (Teams, Google Meet, Zoom,
@@ -28,6 +29,11 @@ Discord…), separa a cada persona que habla, permite tomar notas por secciones 
 
 ## Instalación
 
+Descarga el instalador desde la [última release](https://github.com/AleDev11/meeting-notes/releases/latest).
+Todavía no está firmado, así que Windows SmartScreen mostrará un aviso la primera vez.
+
+### Desde el código
+
 ```bash
 git clone https://github.com/AleDev11/meeting-notes.git
 cd meeting-notes
@@ -35,7 +41,7 @@ bun install
 bun run dev
 ```
 
-Para generar el instalador:
+Para generar el instalador en local:
 
 ```bash
 bun run dist
