@@ -23,6 +23,7 @@ import {
   Trash2
 } from 'lucide-react'
 import type { Meeting, NoteSection, ScreenSource, Settings, SpeakerSuggestion } from '@shared/types'
+import { finalProviderFor } from '@shared/languages'
 import type { Levels, Source } from '../audio/recorder'
 import { fmtDate, fmtDuration, fmtTime } from '../util'
 import { NotesPanel } from './NotesPanel'
@@ -102,7 +103,7 @@ export function MeetingView(p: Props): React.JSX.Element {
       recording={p.isRecording}
       liveNotice={p.liveNotice}
       partials={p.partials}
-      finalProviderName={FINAL_NAMES[p.settings.finalProvider]}
+      finalProviderName={FINAL_NAMES[finalProviderFor(p.settings)]}
       onReassign={p.onReassign}
       onEditSegment={p.onEditSegment}
       onRetranscribe={p.onRetranscribe}

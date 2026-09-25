@@ -102,7 +102,7 @@ const defaultKeys: ApiKeys = {
 const defaults: Settings = {
   keys: defaultKeys,
   myName: '',
-  language: 'es',
+  languages: ['es'],
   micDeviceId: '',
   separateMic: true,
   recordScreen: false,
@@ -182,13 +182,13 @@ function withEnvKeys(keys: ApiKeys): ApiKeys {
 
 export function loadSettings(): Settings {
   if (!existsSync(file())) return { ...structuredClone(defaults), keys: withEnvKeys({ ...defaultKeys }) }
-  const raw = JSON.parse(readFileSync(file(), 'utf8')) as Partial<Settings>
+  const { language, ...raw } = JSON.parse(readFileSync(file(), 'utf8')) as Partial<Settings> & { language?: string }
   let keys = { ...defaultKeys, ...(raw.keys ?? {}) }
   for (const k of Object.keys(keys) as (keyof ApiKeys)[]) keys[k] = decrypt(keys[k])
   keys = withEnvKeys(keys)
   const s: Settings = { ...structuredClone(defaults), ...raw, keys }
-  // "Detectar automáticamente" se guardaba como cadena vacía.
-  if (!s.language) s.language = 'multi'
+  // Antes se guardaba un único idioma; '' y 'multi' equivalían a detectar cualquiera.
+  if (!raw.languages && language !== undefined) s.languages = language && language !== 'multi' ? [language] : []
   // Asegura que las plantillas integradas existen aunque el usuario borre alguna.
   for (const p of BUILTIN_PROMPTS) {
     if (!s.prompts.some((x) => x.id === p.id)) s.prompts.push(p)

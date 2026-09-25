@@ -1,8 +1,8 @@
 import { readFile } from 'fs/promises'
 import WebSocket from 'ws'
+import { isMultilingual } from '../../shared/languages'
 import { request } from './http'
 import {
-  isMultilingual,
   langCode,
   PAUSE_SPLIT,
   SAMPLE_RATE,
@@ -27,13 +27,13 @@ interface DgWord {
  * (español, inglés, francés, alemán, portugués, italiano…). El catalán solo lo
  * reconoce nova-2 y en modo de un único idioma.
  */
-function baseParams(language: string, model: string | undefined, keyterms: string[]): URLSearchParams {
-  const multi = isMultilingual(language)
+function baseParams(languages: string[], model: string | undefined, keyterms: string[]): URLSearchParams {
+  const multi = isMultilingual(languages)
   let m = model || 'nova-3'
-  if (!multi && language === 'ca' && m.startsWith('nova-3')) m = 'nova-2'
+  if (!multi && languages[0] === 'ca' && m.startsWith('nova-3')) m = 'nova-2'
   const params = new URLSearchParams({
     model: m,
-    language: multi ? 'multi' : language,
+    language: multi ? 'multi' : languages[0],
     punctuate: 'true',
     smart_format: 'true'
   })
@@ -89,7 +89,7 @@ export function wordsToSegments(words: DgWord[], diarize: boolean): RawSegment[]
 
 /** Tiempo real con Deepgram: distingue hablantes en directo (diarize=true). */
 export function deepgramLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
-  const params = baseParams(o.language, o.model, o.keyterms)
+  const params = baseParams(o.languages, o.model, o.keyterms)
   params.set('encoding', 'linear16')
   params.set('sample_rate', String(SAMPLE_RATE))
   params.set('channels', '1')
@@ -162,7 +162,7 @@ export function deepgramLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
 
 /** Pasada final con Deepgram pre-recorded. */
 export async function deepgramBatch(o: BatchOptions): Promise<RawSegment[]> {
-  const params = baseParams(o.language, o.model, o.keyterms)
+  const params = baseParams(o.languages, o.model, o.keyterms)
   params.set('diarize', String(o.diarize))
   const data = await request<{
     results?: { channels?: { alternatives: { words: DgWord[] }[] }[] }

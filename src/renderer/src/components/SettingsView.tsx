@@ -32,8 +32,9 @@ import type {
 import { AnimatePresence, motion } from 'motion/react'
 import { fadeUp, Field, Spinner, spring, Toggle, useUi } from './ui'
 import { CostEstimate } from './CostEstimate'
-import { ComboInput, Select } from './Select'
+import { ComboInput, MultiSelect, Select } from './Select'
 import { knownModels, llmPrice } from '@shared/pricing'
+import { finalProviderFor, languageNames, LANGUAGES, liveProviderFor, needsElevenLabs } from '@shared/languages'
 
 type Tab = 'general' | 'audio' | 'transcription' | 'ai' | 'prompts' | 'keys'
 
@@ -46,25 +47,29 @@ const TABS: { id: Tab; label: string; icon: React.JSX.Element }[] = [
   { id: 'keys', label: 'API keys', icon: <KeyRound size={16} /> }
 ]
 
-const LANGUAGES = [
-  ['multi', 'Varios idiomas (detecta cada cambio)'],
-  ['es', 'Español'],
-  ['en', 'Inglés'],
-  ['ca', 'Catalán'],
-  ['pt', 'Portugués'],
-  ['fr', 'Francés'],
-  ['de', 'Alemán'],
-  ['it', 'Italiano']
-]
+const PROVIDER_NAMES: Record<string, string> = { deepgram: 'Deepgram', assemblyai: 'AssemblyAI', elevenlabs: 'ElevenLabs' }
 
 function languageHint(s: Settings): string {
-  if (s.language !== 'multi') {
-    return 'Fijar el idioma da la máxima precisión si toda la reunión es en ese idioma.'
+  if (s.languages.length === 0) {
+    return 'Se detecta el idioma de cada parte. Si se habla catalán, márcalo junto a los demás idiomas: mezclado con otros, Deepgram y AssemblyAI no lo reconocen.'
   }
-  const catalanLive = s.liveProvider === 'deepgram'
-    ? ' En directo, Deepgram no reconoce el catalán cuando se mezcla con otros idiomas; la pasada final con ElevenLabs sí.'
-    : ''
-  return `Para reuniones en las que se cambia de idioma sobre la marcha (español, inglés, catalán…). Cada fragmento se transcribe en el idioma en que se dice.${catalanLive}`
+  if (s.languages.length === 1) return 'Con un solo idioma la precisión es máxima si toda la reunión es en ese idioma.'
+  const base = `Cada fragmento se transcribe en el idioma en que se dice (${languageNames(s.languages)}).`
+  if (!needsElevenLabs(s.languages)) return base
+  const notes: string[] = []
+  const live = liveProviderFor(s)
+  const final = finalProviderFor(s)
+  if (live !== s.liveProvider) {
+    notes.push('En vivo se usa ElevenLabs en lugar de Deepgram, que no reconoce el catalán mezclado con otros idiomas; las personas se separan en la pasada final.')
+  } else if (live === 'deepgram') {
+    notes.push('Deepgram no reconoce el catalán mezclado con otros idiomas: añade una API key de ElevenLabs para verlo en vivo.')
+  }
+  if (final !== s.finalProvider) {
+    notes.push(`La pasada final se hace con ElevenLabs en lugar de ${PROVIDER_NAMES[s.finalProvider]} por el mismo motivo.`)
+  } else if (final === 'deepgram' || final === 'assemblyai') {
+    notes.push(`${PROVIDER_NAMES[final]} no reconoce el catalán mezclado con otros idiomas en la pasada final: añade una API key de ElevenLabs.`)
+  }
+  return [base, ...notes].join(' ')
 }
 
 const LIVE: { id: LiveProvider; name: string; desc: string; key?: keyof ApiKeys; tag?: string }[] = [
@@ -73,7 +78,7 @@ const LIVE: { id: LiveProvider; name: string; desc: string; key?: keyof ApiKeys;
     name: 'Deepgram',
     key: 'deepgram',
     tag: 'Recomendado',
-    desc: 'Separa a las personas en directo (Persona 1, 2, 3…) mientras hablan. Mezcla español, inglés y otros idiomas, pero no reconoce el catalán en ese modo.'
+    desc: 'Separa a las personas en directo (Persona 1, 2, 3…) mientras hablan. Mezcla español, inglés y otros idiomas, pero no el catalán: si lo marcas entre los idiomas, en vivo se usa ElevenLabs.'
   },
   {
     id: 'elevenlabs',
@@ -208,11 +213,12 @@ export function SettingsView({ settings, onChange, update, recording, onInstallU
                 <Field label="Tu nombre" hint="Se usa para etiquetar tu voz (micrófono) en la transcripción y en los resúmenes.">
                   <input value={s.myName} placeholder="Yo" onChange={(e) => set({ myName: e.target.value })} />
                 </Field>
-                <Field label="Idioma de las reuniones" hint={languageHint(s)}>
-                  <Select
-                    value={s.language}
+                <Field label="Idiomas de las reuniones" hint={languageHint(s)}>
+                  <MultiSelect
+                    value={s.languages}
                     options={LANGUAGES.map(([value, label]) => ({ value, label }))}
-                    onChange={(language) => set({ language })}
+                    onChange={(languages) => set({ languages })}
+                    empty="Detectar cualquier idioma"
                   />
                 </Field>
               </section>

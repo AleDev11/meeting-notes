@@ -32,7 +32,7 @@ Funciona con Teams, Google Meet, Zoom, Discord o cualquier aplicación que suene
   procesa la grabación completa con un modelo más preciso (ElevenLabs Scribe v2, AssemblyAI o Deepgram). Los nombres
   que pongas durante la reunión se conservan.
 - **Varios idiomas.** La conversación puede pasar del español al inglés o al catalán: cada parte se transcribe en su
-  idioma y se marca.
+  idioma y se marca. Indica en Configuración qué idiomas se hablan para que se elija el proveedor que los reconoce.
 - **Personas.** Renombra, fusiona, reasigna intervenciones o deja que la IA deduzca los nombres a partir de la
   conversación.
 - **Vocabulario propio.** Nombres, productos y siglas que se reconocen sin errores.
