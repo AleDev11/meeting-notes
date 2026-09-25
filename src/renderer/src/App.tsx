@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowRight, Check, KeyRound, PanelLeftOpen, Plus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowRight, Check, PanelLeftOpen, Plus, Sparkles } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   speakerLabel,
@@ -16,9 +16,11 @@ import {
 } from '@shared/types'
 import { channelsFor, MeetingRecorder, type Levels, type Source } from './audio/recorder'
 import { MeetingView } from './components/MeetingView'
+import { Onboarding } from './components/Onboarding'
 import { ScreenPrompt, type ScreenChoice } from './components/ScreenPrompt'
-import { SettingsView } from './components/SettingsView'
+import { SettingsView, type SettingsTab } from './components/SettingsView'
 import { Sidebar } from './components/Sidebar'
+import { TitleBar } from './components/TitleBar'
 import type { LivePartial } from './components/TranscriptView'
 import { Logo, soft, UiProvider, useMediaQuery, useUi } from './components/ui'
 
@@ -50,6 +52,8 @@ function Shell(): React.JSX.Element {
   const [view, setView] = useState<'meeting' | 'settings'>('meeting')
   const [sidebarHidden, setSidebarHidden] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  /** Carpeta que el panel lateral debe desplegar y enseñar. */
+  const [reveal, setReveal] = useState<string | null>(null)
 
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -68,6 +72,13 @@ function Shell(): React.JSX.Element {
   const [summaryStream, setSummaryStream] = useState<{ id: string; text: string } | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
   const [highlight, setHighlight] = useState<string | undefined>()
+  /** Asistente de primer uso: al arrancar sin configuración o reabierto desde Configuración. */
+  const [onboarding, setOnboarding] = useState<'first' | 'again' | null>(null)
+  const onboardingRef = useRef(onboarding)
+  /** Cambia al cerrar el asistente para que Configuración recargue lo que se ha guardado en él. */
+  const [settingsEpoch, setSettingsEpoch] = useState(0)
+  const [settingsTab, setSettingsTab] = useState<{ tab: SettingsTab; n: number } | null>(null)
+  onboardingRef.current = onboarding
 
   const recorder = useRef<MeetingRecorder | null>(null)
   const meetingRef = useRef<Meeting | null>(null)
@@ -90,8 +101,13 @@ function Shell(): React.JSX.Element {
 
   useEffect(() => {
     void refreshLibrary()
-    void window.api.getSettings().then(setSettings)
+    void window.api.getSettings().then((s) => {
+      setSettings(s)
+      if (!s.onboardingDone) setOnboarding('first')
+    })
 
+    // Cambios guardados desde el proceso principal (IA local activada).
+    const offPatched = window.api.onSettingsPatched((patch) => setSettings((s) => (s ? { ...s, ...patch } : s)))
     const offUpdated = window.api.onMeetingUpdated((m) => {
       const cur = meetingRef.current
       if (cur?.id === m.id) {
@@ -133,6 +149,7 @@ function Shell(): React.JSX.Element {
     const beforeUnload = (): void => void flushSave()
     window.addEventListener('beforeunload', beforeUnload)
     return () => {
+      offPatched()
       offUpdated()
       offLive()
       offSummary()
@@ -204,13 +221,20 @@ function Shell(): React.JSX.Element {
     })
   }
 
-  const renameFolder = async (f: Folder): Promise<void> => {
-    const name = await ui.askText('Renombrar carpeta', f.name)
-    if (name) await run(async () => {
+  const renameFolder = (f: Folder, name: string): Promise<void> =>
+    run(async () => {
+      setFolders((list) => list.map((x) => (x.id === f.id ? { ...x, name } : x)))
       await window.api.updateFolder({ ...f, name })
       await refreshLibrary()
     })
-  }
+
+  /** Renombrar desde el panel lateral: la reunión abierta pasa por edit para no pisar cambios sin guardar. */
+  const renameMeeting = (id: string, title: string): Promise<void> =>
+    run(async () => {
+      if (meetingRef.current?.id === id) return edit({ title })
+      setMeetings((list) => list.map((m) => (m.id === id ? { ...m, title } : m)))
+      await window.api.patchMeeting(id, { title })
+    })
 
   const deleteFolder = async (f: Folder): Promise<void> => {
     const ok = await ui.confirm(
@@ -243,13 +267,18 @@ function Shell(): React.JSX.Element {
     })
   }
 
-  const moveMeeting = (id: string, folderId: string | null, beforeId: string | null): Promise<void> =>
+  /** shown: orden visible de la carpeta (otro criterio de orden); si no, el manual. */
+  const moveMeeting = (id: string, folderId: string | null, beforeId: string | null, shown?: string[]): Promise<void> =>
     run(async () => {
       const dragged = meetings.find((m) => m.id === id)
       if (!dragged) return
+      const rank = (m: MeetingSummary): number => {
+        const i = shown ? shown.indexOf(m.id) : -1
+        return i < 0 ? (shown ? 1e9 : 0) + m.order : i
+      }
       const siblings = meetings
         .filter((m) => m.folderId === folderId && m.id !== id)
-        .sort((a, b) => a.order - b.order)
+        .sort((a, b) => rank(a) - rank(b))
       const idx = beforeId ? siblings.findIndex((m) => m.id === beforeId) : -1
       siblings.splice(idx < 0 ? siblings.length : idx, 0, dragged)
       await window.api.reorderMeetings(siblings.map((m, i) => ({ id: m.id, folderId, order: i })))
@@ -271,6 +300,17 @@ function Shell(): React.JSX.Element {
       await window.api.reorderFolders(siblings.map((f, i) => ({ id: f.id, parentId, order: i })))
       await refreshLibrary()
     })
+
+  // Ruta de carpetas de la reunión abierta, de la raíz hacia dentro.
+  const folderId = meeting?.folderId ?? null
+  const folderPath = useMemo(() => {
+    const path: Folder[] = []
+    for (let f = folders.find((x) => x.id === folderId); f; f = folders.find((x) => x.id === f?.parentId)) {
+      if (path.includes(f)) break
+      path.unshift(f)
+    }
+    return path
+  }, [folders, folderId])
 
   // ---------- grabación ----------
 
@@ -295,15 +335,10 @@ function Shell(): React.JSX.Element {
       if (go) setView('settings')
       return
     }
-    if (
-      m.transcript.length &&
-      !(await ui.confirm(
-        'Volver a grabar',
-        'Esta reunión ya tiene transcripción. Si grabas de nuevo se sustituirá (las notas se mantienen).',
-        { confirmLabel: 'Grabar de nuevo', danger: true }
-      ))
-    )
-      return
+    // Una reunión, una grabación: volver a grabar mezclaría personas y perdería la anterior.
+    if ((m.hasAudio && m.durationSec > 0) || m.transcript.length) {
+      return ui.toast('Esta reunión ya está grabada. Crea una nueva para grabar otra.', 'info')
+    }
 
     // ¿Grabar también la pantalla? Se pregunta salvo que se haya pedido no volver a hacerlo.
     let withScreen = settings.recordScreen
@@ -402,6 +437,8 @@ function Shell(): React.JSX.Element {
   // Acciones rápidas desde la bandeja del sistema o el icono de la barra de tareas.
   const appActions = useRef<(a: AppAction) => Promise<void>>(async () => {})
   appActions.current = async (action) => {
+    // Con el asistente abierto no se graba ni se crean reuniones por detrás.
+    if (onboardingRef.current) return
     if (action === 'new-meeting') return newMeeting(null)
     if (action === 'record') {
       if (recordingId) return openMeeting(recordingId)
@@ -514,14 +551,49 @@ function Shell(): React.JSX.Element {
     setSettings(s)
   }
 
-  if (!settings) return <div className="app loading" />
+  if (!settings)
+    return (
+      <div className="app loading">
+        <TitleBar />
+      </div>
+    )
 
-  const noKeys = Object.values(settings.keys).every((k) => !k)
+  const noKeys = !settings.keys.elevenlabs && !settings.keys.deepgram && !settings.keys.assemblyai
   const showSidebar = narrow ? drawerOpen : !sidebarHidden
   const isRecordingThis = !!meeting && recordingId === meeting.id
 
   return (
-    <div className={`app ${narrow ? 'is-narrow' : ''}`}>
+    <>
+    <AnimatePresence>
+      {onboarding && (
+        <motion.div
+          key="onboarding"
+          className="onb-layer"
+          initial={onboarding === 'first' ? false : { opacity: 0, scale: 0.985 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.985 }}
+          transition={soft}
+        >
+          <Onboarding
+            settings={settings}
+            closable={onboarding === 'again'}
+            onSave={saveSettings}
+            onClose={() => {
+              setOnboarding(null)
+              setSettingsEpoch((n) => n + 1)
+            }}
+            onFinish={(create) => {
+              setOnboarding(null)
+              setSettingsEpoch((n) => n + 1)
+              if (create) void newMeeting(null)
+              else setView('meeting')
+            }}
+          />
+        </motion.div>
+      )}
+    </AnimatePresence>
+    <TitleBar />
+    <div className={`app ${narrow ? 'is-narrow' : ''}`} inert={!!onboarding}>
       <AnimatePresence initial={false}>
         {showSidebar && narrow && (
           <motion.div
@@ -547,17 +619,28 @@ function Shell(): React.JSX.Element {
             meetings={meetings}
             selectedId={meeting?.id ?? null}
             recordingId={recordingId}
+            recordingPaused={paused}
+            summarizingId={summaryStream?.id ?? null}
             settingsOpen={view === 'settings'}
             onSelect={(id, query) => void openMeeting(id, query)}
             onNewMeeting={(f) => void newMeeting(f)}
             onNewFolder={(p) => void newFolder(p)}
-            onRenameFolder={(f) => void renameFolder(f)}
+            onRenameFolder={(f, name) => void renameFolder(f, name)}
+            onRenameMeeting={(id, title) => void renameMeeting(id, title)}
             onDeleteFolder={(f) => void deleteFolder(f)}
             onDeleteMeeting={(m) => void deleteMeeting(m)}
-            onMoveMeeting={(id, f, b) => void moveMeeting(id, f, b)}
+            onMoveMeeting={(id, f, b, shown) => void moveMeeting(id, f, b, shown)}
             onMoveFolder={(id, p, b) => void moveFolder(id, p, b)}
+            reveal={reveal}
+            onRevealed={() => setReveal(null)}
             onOpenSettings={() => {
               void flushSave()
+              setView('settings')
+              setDrawerOpen(false)
+            }}
+            onOpenLocalAi={() => {
+              void flushSave()
+              setSettingsTab((r) => ({ tab: 'ai', n: (r?.n ?? 0) + 1 }))
               setView('settings')
               setDrawerOpen(false)
             }}
@@ -601,17 +684,26 @@ function Shell(): React.JSX.Element {
               </button>
             )}
             <SettingsView
+              key={settingsEpoch}
               settings={settings}
               onChange={saveSettings}
               update={update}
               recording={!!recordingId}
               onInstallUpdate={() => void installUpdate()}
+              onOpenOnboarding={() => setOnboarding('again')}
+              tabRequest={settingsTab}
             />
           </motion.div>
         ) : meeting ? (
           <motion.div key={meeting.id} className="page" {...page}>
           <MeetingView
             meeting={meeting}
+            folderPath={folderPath}
+            onRevealFolder={(id) => {
+              if (narrow) setDrawerOpen(true)
+              else setSidebarHidden(false)
+              setReveal(id)
+            }}
             settings={settings}
             sidebarHidden={!showSidebar}
             onShowSidebar={() => (narrow ? setDrawerOpen(true) : setSidebarHidden(false))}
@@ -635,6 +727,7 @@ function Shell(): React.JSX.Element {
             screenOn={screenOn}
             onToggleScreen={() => void toggleScreen()}
             onStart={() => void startRecording()}
+            onNewMeeting={() => void newMeeting(meeting.folderId)}
             onStop={() => void stopRecording()}
             partials={isRecordingThis ? Object.values(partials).filter((x): x is LivePartial => !!x) : []}
             onTitle={(title) => edit({ title })}
@@ -648,6 +741,7 @@ function Shell(): React.JSX.Element {
             onSuggestSpeakers={() => window.api.suggestSpeakers(meeting.id)}
             onReassign={(ids, sp) => void run(() => window.api.reassignSegments(meeting.id, ids, sp))}
             onEditSegment={(segId, text) => void run(() => window.api.editSegment(meeting.id, segId, text))}
+            onGlossary={(glossary) => void saveSettings({ ...settings, glossary })}
             onRetranscribe={() => void run(() => window.api.retranscribe(meeting.id))}
             onGenerateSummary={(id) => void generateSummary(id)}
             summaryStreaming={summaryStream?.id === meeting.id ? summaryStream.text : null}
@@ -668,13 +762,14 @@ function Shell(): React.JSX.Element {
             showToggle={!showSidebar}
             onToggle={() => (narrow ? setDrawerOpen(true) : setSidebarHidden(false))}
             onNew={() => void newMeeting(null)}
-            onSettings={() => setView('settings')}
+            onSetup={() => setOnboarding('again')}
           />
           </motion.div>
         )}
         </AnimatePresence>
       </main>
     </div>
+    </>
   )
 }
 
@@ -683,12 +778,12 @@ function Welcome(p: {
   showToggle: boolean
   onToggle: () => void
   onNew: () => void
-  onSettings: () => void
+  onSetup: () => void
 }): React.JSX.Element {
   const steps = [
     {
       title: 'Conecta los servicios',
-      text: 'Una API key de transcripción (Deepgram, ElevenLabs o AssemblyAI) y otra de IA (Claude u OpenAI).',
+      text: 'Una API key de transcripción (ElevenLabs, Deepgram o AssemblyAI) y, si quieres, IA para las actas: Claude, ChatGPT o un modelo local.',
       done: !p.noKeys
     },
     { title: 'Crea una reunión y pulsa Grabar', text: 'Se captura tu micrófono y el audio del equipo, sea cual sea la app.' },
@@ -730,8 +825,8 @@ function Welcome(p: {
         <motion.div variants={item} className="welcome-actions">
           {p.noKeys ? (
             <>
-              <button className="btn primary lg" onClick={p.onSettings}>
-                <KeyRound size={15} /> Configurar API keys
+              <button className="btn primary lg" onClick={p.onSetup}>
+                <Sparkles size={15} /> Configurar paso a paso
               </button>
               <button className="btn ghost lg" onClick={p.onNew}>
                 Empezar sin configurar <ArrowRight size={15} />

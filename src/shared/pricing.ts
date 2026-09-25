@@ -1,3 +1,4 @@
+import { finalProviderFor, isMultilingual, liveProviderFor } from './languages'
 import type { Settings } from './types'
 
 /**
@@ -53,20 +54,23 @@ export interface CostEstimate {
   unknownModel: string | null
 }
 
-const multilingual = (s: Settings): boolean => !s.language || s.language === 'multi'
+const multilingual = (s: Settings): boolean => isMultilingual(s.languages)
+
+/** Aviso cuando se usa ElevenLabs en lugar del proveedor elegido porque se mezcla catalán. */
+const byCatalan = (chosen: string, used: string): string => (chosen !== used ? ' (por el catalán)' : '')
 
 function liveCost(s: Settings): Omit<CostLine, 'key' | 'label'> {
   // Con el micro aparte hay dos transcripciones en vivo: micro (sin separar voces) y sistema (separando).
   const streams = s.separateMic ? [{ diarize: false }, { diarize: true }] : [{ diarize: true }]
   const n = streams.length === 2 ? '2 transcripciones simultáneas (tu micro y la llamada)' : '1 transcripción (audio mezclado)'
-  switch (s.liveProvider) {
+  switch (liveProviderFor(s)) {
     case 'deepgram': {
       const base = multilingual(s) ? DEEPGRAM.streamingMulti : DEEPGRAM.streamingMono
       const perMin = streams.reduce((t, st) => t + base + (st.diarize ? DEEPGRAM.streamingDiarize : 0), 0)
       return { perHour: perMin * 60, detail: `Deepgram · ${n}` }
     }
     case 'elevenlabs':
-      return { perHour: ELEVENLABS.realtimePerHour * streams.length, detail: `ElevenLabs Realtime · ${n}` }
+      return { perHour: ELEVENLABS.realtimePerHour * streams.length, detail: `ElevenLabs Realtime${byCatalan(s.liveProvider, liveProviderFor(s))} · ${n}` }
     default:
       return { perHour: 0, detail: 'Desactivada' }
   }
@@ -76,9 +80,9 @@ function finalCost(s: Settings): Omit<CostLine, 'key' | 'label'> {
   // Con el micro aparte se procesan dos pistas: la tuya (sin separar voces) y la de la llamada.
   const tracks = s.separateMic ? 2 : 1
   const n = tracks === 2 ? ' · 2 pistas (tu micro y la llamada)' : ''
-  switch (s.finalProvider) {
+  switch (finalProviderFor(s)) {
     case 'elevenlabs':
-      return { perHour: ELEVENLABS.batchPerHour * tracks, detail: `ElevenLabs Scribe v2${n}` }
+      return { perHour: ELEVENLABS.batchPerHour * tracks, detail: `ElevenLabs Scribe v2${byCatalan(s.finalProvider, finalProviderFor(s))}${n}` }
     case 'assemblyai':
       return {
         perHour: ASSEMBLYAI.batchPerHour * tracks + ASSEMBLYAI.diarizePerHour,
@@ -103,15 +107,18 @@ export function llmPrice(model: string): [number, number] | null {
 }
 
 export function estimateCost(s: Settings): CostEstimate {
-  const model = s.llmProvider === 'openai' ? s.openaiModel : s.anthropicModel
-  const price = llmPrice(model)
+  const local = s.llmProvider === 'ollama'
+  const model = local ? s.ollamaModel : s.llmProvider === 'openai' ? s.openaiModel : s.anthropicModel
+  // Con Ollama el modelo corre en el equipo: no hay coste por token.
+  const price: [number, number] | null = local ? [0, 0] : llmPrice(model)
   const summary = price
     ? (TOKENS_PER_HOUR.input * price[0] + TOKENS_PER_HOUR.output * price[1]) / 1_000_000
     : null
+  const detail = local ? `${model || 'Ollama'} · en tu equipo, sin coste` : `${model} · un resumen por reunión`
   const lines: CostLine[] = [
     { key: 'live', label: 'Transcripción en vivo', ...liveCost(s) },
     { key: 'final', label: 'Transcripción final', ...finalCost(s) },
-    { key: 'summary', label: 'Resumen con IA', detail: `${model} · un resumen por reunión`, perHour: summary }
+    { key: 'summary', label: 'Resumen con IA', detail, perHour: summary }
   ]
   return {
     lines,

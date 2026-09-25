@@ -12,7 +12,7 @@ export interface SelectOption<T extends string> {
 /** Lista desplegable con las opciones; compartida por Select y ComboInput. */
 function OptionList<T extends string>(p: {
   options: SelectOption<T>[]
-  value: string
+  selected: (v: T) => boolean
   active: number
   onActive: (i: number) => void
   onPick: (v: T) => void
@@ -44,7 +44,7 @@ function OptionList<T extends string>(p: {
           key={o.value}
           type="button"
           role="option"
-          aria-selected={o.value === p.value}
+          aria-selected={p.selected(o.value)}
           data-i={i}
           className={`select-option ${i === p.active ? 'active' : ''}`}
           onMouseEnter={() => p.onActive(i)}
@@ -53,7 +53,7 @@ function OptionList<T extends string>(p: {
         >
           <span className="mi-label">{o.label}</span>
           {o.hint && <span className="mi-hint">{o.hint}</span>}
-          <span className="select-check">{o.value === p.value && <Check size={13} />}</span>
+          <span className="select-check">{p.selected(o.value) && <Check size={13} />}</span>
         </button>
       ))}
     </motion.div>
@@ -137,7 +137,55 @@ export function Select<T extends string>(p: {
       </button>
       <AnimatePresence>
         {open && (
-          <OptionList options={p.options} value={p.value} active={active} onActive={setActive} onPick={pick} align={p.align ?? 'left'} />
+          <OptionList options={p.options} selected={(v) => v === p.value} active={active} onActive={setActive} onPick={pick} align={p.align ?? 'left'} />
+        )}
+      </AnimatePresence>
+    </span>
+  )
+}
+
+/** Selector de varias opciones: la lista sigue abierta al marcar o desmarcar. */
+export function MultiSelect<T extends string>(p: {
+  value: T[]
+  options: SelectOption<T>[]
+  onChange: (v: T[]) => void
+  /** Texto cuando no hay nada marcado. */
+  empty: string
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const root = useRef<HTMLSpanElement>(null)
+  const close = (): void => setOpen(false)
+  useOutside(root, open, close)
+
+  // Se conserva el orden de las opciones, no el de los clics.
+  const pick = (v: T): void =>
+    p.onChange(p.options.map((o) => o.value).filter((x) => (x === v ? !p.value.includes(v) : p.value.includes(x))))
+  const labels = p.options.filter((o) => p.value.includes(o.value)).map((o) => o.label)
+
+  return (
+    <span className="select anchor" ref={root}>
+      <button
+        type="button"
+        className={`select-trigger field ${open ? 'open' : ''}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        onKeyDown={(e) => listKeys(e, { open, setOpen, active, setActive, options: p.options, pick })}
+      >
+        <span className="select-value">{labels.length ? labels.join(', ') : p.empty}</span>
+        <ChevronDown size={13} className="select-chevron" />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <OptionList
+            options={p.options}
+            selected={(v) => p.value.includes(v)}
+            active={active}
+            onActive={setActive}
+            onPick={pick}
+            align="left"
+          />
         )}
       </AnimatePresence>
     </span>
@@ -200,7 +248,7 @@ export function ComboInput(p: {
       </button>
       <AnimatePresence>
         {open && options.length > 0 && (
-          <OptionList options={options} value={p.value} active={active} onActive={setActive} onPick={pick} align="left" />
+          <OptionList options={options} selected={(v) => v === p.value} active={active} onActive={setActive} onPick={pick} align="left" />
         )}
       </AnimatePresence>
     </span>

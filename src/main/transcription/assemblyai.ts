@@ -1,6 +1,7 @@
 import { readFile } from 'fs/promises'
 import { request } from './http'
-import { isMultilingual, langCode, PAUSE_SPLIT, type BatchOptions, type RawSegment } from './types'
+import { isMultilingual } from '../../shared/languages'
+import { langCode, PAUSE_SPLIT, type BatchOptions, type RawSegment } from './types'
 
 const API = 'https://api.assemblyai.com/v2'
 
@@ -14,17 +15,18 @@ export async function assemblyAiBatch(o: BatchOptions): Promise<RawSegment[]> {
   })
 
   const body: Record<string, unknown> = { audio_url: upload_url, speaker_labels: o.diarize }
-  if (isMultilingual(o.language)) {
+  const catalan = !isMultilingual(o.languages) && o.languages[0] === 'ca'
+  if (isMultilingual(o.languages)) {
     body.language_detection = true
     body.language_detection_options = { code_switching: true }
   } else {
-    body.language_code = o.language
+    body.language_code = o.languages[0]
     // El catalán solo lo reconoce universal-2.
-    if (o.language === 'ca') body.speech_models = ['universal-2']
+    if (catalan) body.speech_models = ['universal-2']
   }
   if (o.diarize && o.expectedSpeakers) body.speakers_expected = o.expectedSpeakers
   // Con universal-2 (el modelo del catalán) solo se admite vocabulario en inglés.
-  if (o.keyterms.length && o.language !== 'ca') body.keyterms_prompt = o.keyterms.slice(0, 200)
+  if (o.keyterms.length && !catalan) body.keyterms_prompt = o.keyterms.slice(0, 200)
 
   const { id } = await request<{ id: string }>(`${API}/transcript`, {
     method: 'POST',

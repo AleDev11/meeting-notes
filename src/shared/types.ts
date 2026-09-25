@@ -45,11 +45,32 @@ export interface Speaker {
   index: number
 }
 
+/** Imagen adjunta a una sección: library/meetings/<id>/attachments/<file>. */
+export interface NoteAttachment {
+  id: string
+  /** Nombre del fichero en disco: <uuid>.<ext>. */
+  file: string
+  /** Nombre original, para mostrarlo. */
+  name: string
+  width: number
+  height: number
+}
+
+/** Formatos de imagen que se pueden adjuntar a las notas. */
+export const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp'
+}
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+
 export interface NoteSection {
   id: string
   title: string
   content: string
   order: number
+  attachments?: NoteAttachment[]
 }
 
 /** pending: la transcripción final no se pudo hacer (sin crédito, sin conexión…) y se reintentará sola. */
@@ -94,13 +115,107 @@ export type MeetingSummary = Pick<
 
 export type LiveProvider = 'deepgram' | 'elevenlabs' | 'none'
 export type FinalProvider = 'elevenlabs' | 'deepgram' | 'assemblyai' | 'none'
-export type LlmProvider = 'anthropic' | 'openai'
+export type LlmProvider = 'anthropic' | 'openai' | 'ollama'
+
+export const DEFAULT_OLLAMA_URL = 'http://localhost:11434'
+/**
+ * Modelo local recomendado: Qwen3.5 9B (6,6 GB en Q4). Escribe bien en español, catalán e
+ * inglés y cabe en un portátil con 16 GB de RAM; con 8 GB, qwen3.5:4b (3,4 GB).
+ */
+export const RECOMMENDED_OLLAMA_MODEL = 'qwen3.5:9b'
+export const SMALL_OLLAMA_MODEL = 'qwen3.5:4b'
+/** Instalador oficial de Ollama para Windows (redirige a la última versión en GitHub). */
+export const OLLAMA_INSTALLER_URL = 'https://ollama.com/download/OllamaSetup.exe'
+
+/** Modelo instalado en Ollama. */
+export interface OllamaModel {
+  name: string
+  /** Bytes en disco. */
+  size: number
+  parameterSize: string
+}
+
+/** Modelos Qwen 3.5 que la IA local sabe instalar, de mayor a menor. */
+export const LOCAL_MODELS: { name: string; bytes: number; ram: string }[] = [
+  { name: 'qwen3.5:9b', bytes: 6.6e9, ram: '16 GB de RAM o más' },
+  { name: 'qwen3.5:4b', bytes: 3.4e9, ram: 'de 8 a 16 GB de RAM' },
+  { name: 'qwen3.5:2b', bytes: 2.7e9, ram: 'menos de 8 GB de RAM' },
+  { name: 'qwen3.5:0.8b', bytes: 1.0e9, ram: 'equipos muy justos' }
+]
+
+/** Fases de la activación de la IA local, en orden. */
+export type LocalAiStage = 'download' | 'install' | 'start' | 'model' | 'done'
+
+export type LocalAiErrorCode = 'offline' | 'download' | 'signature' | 'installer' | 'start' | 'disk' | 'pull' | 'unsupported'
+
+export interface LocalAiProgress {
+  /** Bytes descargados y totales (0 si aún no se conoce). */
+  done: number
+  total: number
+  bytesPerSec: number
+}
+
+/** Estado de la activación de la IA local; vive en el proceso principal y se difunde a las ventanas. */
+export interface LocalAiState {
+  status: 'idle' | 'running' | 'done' | 'error'
+  stage: LocalAiStage | null
+  /** Fases que no hizo falta hacer (Ollama ya instalado, en marcha o modelo ya descargado). */
+  skipped: LocalAiStage[]
+  model: string
+  /** Aviso sobre el modelo elegido (p. ej. equipo con poca RAM). */
+  modelNote?: string
+  progress?: LocalAiProgress
+  /** Texto breve de lo que se está haciendo ahora. */
+  detail?: string
+  error?: { stage: LocalAiStage; code: LocalAiErrorCode; message: string }
+  /** La última activación la canceló el usuario. */
+  cancelled?: boolean
+}
+
+/** Qué hay ahora mismo en el equipo. */
+export interface LocalAiDetection {
+  running: boolean
+  installed: boolean
+  version?: string
+  models: string[]
+  url: string
+  /** Modelo recomendado para este equipo y la RAM en GB. */
+  recommended: string
+  ramGb: number
+  note?: string
+  /** Tamaño del instalador de Ollama, si se ha podido consultar. */
+  installerBytes?: number
+}
+
+/** Origen de una key disponible: guardada en la app, archivo .env.local o variable de entorno. */
+export type KeySource = 'saved' | 'file' | 'env'
+
+/** Resultado de comprobar una API key contra su proveedor. */
+export type KeyCheckStatus = 'valid' | 'invalid' | 'forbidden' | 'network' | 'error'
+
+export interface KeyCheck {
+  status: KeyCheckStatus
+  /** Explicación para mostrar al usuario. */
+  message: string
+}
+
+export interface OllamaStatus {
+  ok: boolean
+  models: OllamaModel[]
+  error?: string
+}
 
 export interface PromptTemplate {
   id: string
   name: string
   content: string
   builtin?: boolean
+}
+
+/** Término de la jerga del usuario; el significado puede quedar vacío. */
+export interface GlossaryEntry {
+  term: string
+  meaning: string
 }
 
 export interface ApiKeys {
@@ -115,8 +230,8 @@ export interface Settings {
   keys: ApiKeys
   // general
   myName: string
-  /** Código de idioma, o 'multi' si en la reunión se mezclan varios. */
-  language: string
+  /** Idiomas que se hablan en las reuniones. Vacío = detectar cualquiera. */
+  languages: string[]
   micDeviceId: string
   /** Transcribe el micrófono aparte y lo etiqueta siempre como "yo". */
   separateMic: boolean
@@ -131,12 +246,15 @@ export interface Settings {
   /** Personas en la reunión, contándote a ti. */
   expectedSpeakers: number | null
   deepgramModel: string
-  /** Nombres propios y términos que el reconocimiento de voz debe esperar. */
-  vocabulary: string[]
+  /** Jergas y vocabulario: se esperan al transcribir y se explican a la IA. */
+  glossary: GlossaryEntry[]
   // IA
   llmProvider: LlmProvider
   anthropicModel: string
   openaiModel: string
+  /** Servidor local de Ollama: resúmenes sin coste ni API key. */
+  ollamaUrl: string
+  ollamaModel: string
   prompts: PromptTemplate[]
   defaultPromptId: string
   speakerIdPrompt: string
@@ -148,6 +266,8 @@ export interface Settings {
   minimizeToTray: boolean
   /** Al cerrar la ventana, seguir en la bandeja en lugar de salir. */
   closeToTray: boolean
+  /** Asistente de primer uso completado (o innecesario: ya había una key de transcripción). */
+  onboardingDone: boolean
 }
 
 /** Acciones rápidas desde la bandeja o el icono de la barra de tareas. */

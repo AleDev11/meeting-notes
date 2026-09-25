@@ -11,6 +11,7 @@ import {
   writeFileSync
 } from 'fs'
 import { join } from 'path'
+import { IMAGE_TYPES, MAX_ATTACHMENT_BYTES } from '../shared/types'
 import type { Folder, Meeting, MeetingSummary, RecordingTrack, SearchResult } from '../shared/types'
 import { indexMeeting, listIndexed, openIndex, removeFromIndex, searchIndex, syncIndex } from './library-index'
 
@@ -23,6 +24,7 @@ import { indexMeeting, listIndexed, openIndex, removeFromIndex, searchIndex, syn
  *   library/meetings/<id>/mic.webm      solo micrófono (si se captura por separado)
  *   library/meetings/<id>/system.webm   solo audio del sistema (si se captura por separado)
  *   library/meetings/<id>/screen.mp4    grabación de pantalla con el audio mezclado (opcional)
+ *   library/meetings/<id>/attachments/  imágenes adjuntas a las notas (<uuid>.<ext>)
  */
 export const libraryDir = (): string => join(app.getPath('userData'), 'library')
 const meetingsDir = (): string => join(libraryDir(), 'meetings')
@@ -177,4 +179,41 @@ export function resetAudio(id: string): void {
 
 export function appendAudio(id: string, track: RecordingTrack, chunk: Uint8Array): void {
   appendFileSync(audioPath(id, track), chunk)
+}
+
+// ---------- imágenes adjuntas ----------
+
+const MEETING_ID = /^[0-9a-f-]{36}$/
+const ATTACHMENT_FILE = /^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/
+
+/** Ruta de un adjunto, o null si el id o el nombre no son válidos (evita salir de la carpeta). */
+export function attachmentPath(id: string, file: string): string | null {
+  if (!MEETING_ID.test(id) || !ATTACHMENT_FILE.test(file)) return null
+  return join(meetingDir(id), 'attachments', file)
+}
+
+/** Formato real de la imagen según su cabecera, sin fiarse del nombre ni del tipo declarado. */
+function imageExt(b: Uint8Array): string | null {
+  const ascii = (from: number, to: number): string => String.fromCharCode(...b.subarray(from, to))
+  if (b[0] === 0x89 && ascii(1, 4) === 'PNG') return 'png'
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpg'
+  if (ascii(0, 4) === 'GIF8') return 'gif'
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'webp'
+  return null
+}
+
+export function saveAttachment(id: string, bytes: Uint8Array): string {
+  if (!MEETING_ID.test(id) || !existsSync(meetingFile(id))) throw new Error('Reunión no encontrada')
+  if (bytes.byteLength > MAX_ATTACHMENT_BYTES) throw new Error('La imagen supera los 25 MB.')
+  const ext = imageExt(bytes)
+  if (!ext || !IMAGE_TYPES[ext]) throw new Error('Solo se pueden adjuntar imágenes PNG, JPG, GIF o WebP.')
+  const file = `${randomUUID()}.${ext}`
+  mkdirSync(join(meetingDir(id), 'attachments'), { recursive: true })
+  writeFileSync(join(meetingDir(id), 'attachments', file), bytes)
+  return file
+}
+
+export function removeAttachment(id: string, file: string): void {
+  const f = attachmentPath(id, file)
+  if (f) rmSync(f, { force: true })
 }

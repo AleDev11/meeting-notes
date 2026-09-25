@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   ArrowDownToLine,
   ChevronRight,
-  Clock,
   FilePlus2,
   Folder as FolderIcon,
+  FolderOpen,
   FolderPlus,
-  Loader2,
   MoreHorizontal,
   PanelLeftClose,
   Pencil,
@@ -20,6 +19,7 @@ import {
 import type { Folder, MeetingSummary, SearchResult } from '@shared/types'
 import { fmtDate, fmtDuration } from '../util'
 import { Select } from './Select'
+import { LocalAiPill } from './LocalAi'
 import { Logo, MenuItem, Popover, quick, soft } from './ui'
 
 export type SortMode = 'manual' | 'recent' | 'name'
@@ -29,17 +29,28 @@ interface Props {
   meetings: MeetingSummary[]
   selectedId: string | null
   recordingId: string | null
+  /** La grabación en curso está en pausa. */
+  recordingPaused: boolean
+  /** Reunión cuyo resumen se está generando. */
+  summarizingId: string | null
   settingsOpen: boolean
   /** highlight: texto buscado, para resaltarlo en la reunión. */
   onSelect: (id: string, highlight?: string) => void
   onNewMeeting: (folderId: string | null) => void
   onNewFolder: (parentId: string | null) => void
-  onRenameFolder: (f: Folder) => void
+  onRenameFolder: (f: Folder, name: string) => void
+  onRenameMeeting: (id: string, title: string) => void
   onDeleteFolder: (f: Folder) => void
   onDeleteMeeting: (m: MeetingSummary) => void
-  onMoveMeeting: (id: string, folderId: string | null, beforeId: string | null) => void
+  /** shown: orden visible de la carpeta destino, para recolocar fuera del orden manual. */
+  onMoveMeeting: (id: string, folderId: string | null, beforeId: string | null, shown?: string[]) => void
   onMoveFolder: (id: string, parentId: string | null, beforeId: string | null) => void
+  /** Carpeta que hay que desplegar y enseñar; se avisa con onRevealed al hacerlo. */
+  reveal: string | null
+  onRevealed: () => void
   onOpenSettings: () => void
+  /** Abre Configuración en la pestaña de la IA local. */
+  onOpenLocalAi: () => void
   onCollapse: () => void
   /** Versión descargada y lista para instalar. */
   updateReady: string | null
@@ -60,16 +71,156 @@ function renderSnippet(snippet: string): React.ReactNode {
   })
 }
 
+// ---------- estado de cada reunión ----------
+
+type RowState = 'recording' | 'paused' | 'processing' | 'summary' | 'pending' | 'error' | 'done' | 'idle'
+
+/** Tooltip y, si hay que llamar la atención, subtítulo de la fila. live: tarea en marcha. */
+const STATE_INFO: Record<RowState, { tip: string; sub?: string; live?: boolean }> = {
+  recording: { tip: 'Grabando', sub: 'Grabando ahora', live: true },
+  paused: { tip: 'Grabación en pausa', sub: 'Grabación en pausa', live: true },
+  processing: { tip: 'Haciendo la transcripción final…', sub: 'Transcribiendo…', live: true },
+  summary: { tip: 'Generando resumen…', sub: 'Generando resumen…', live: true },
+  pending: { tip: 'Pendiente de transcribir: se reintentará sola', sub: 'Pendiente de transcribir' },
+  error: { tip: 'Error en la transcripción final', sub: 'Error al transcribir' },
+  done: { tip: 'Transcrita' },
+  idle: { tip: 'Sin grabar' }
+}
+
+const RING = 'M8 1.75a6.25 6.25 0 1 1 0 12.5a6.25 6.25 0 1 1 0-12.5'
+
+/** Iconos de estado circulares, al estilo de los de GitHub Actions. */
+function StateIcon({ state }: { state: RowState }): React.JSX.Element {
+  if (state === 'recording') return <span className="rec-dot" />
+  const body = ((): React.ReactNode => {
+    switch (state) {
+      case 'processing':
+      case 'summary':
+        return (
+          <>
+            <path d={RING} className="st-track" />
+            <path d="M8 1.75a6.25 6.25 0 0 1 6.25 6.25" />
+          </>
+        )
+      case 'paused':
+        return (
+          <>
+            <path d={RING} />
+            <path d="M6.5 5.75v4.5M9.5 5.75v4.5" />
+          </>
+        )
+      case 'pending':
+        return (
+          <>
+            <path d={RING} />
+            <path d="M8 4.75V8l2 1.25" />
+          </>
+        )
+      case 'error':
+        return (
+          <>
+            <circle cx="8" cy="8" r="7" className="st-fill" />
+            <path d="M5.75 5.75l4.5 4.5m0-4.5l-4.5 4.5" className="st-cut" />
+          </>
+        )
+      case 'done':
+        return (
+          <>
+            <path d={RING} />
+            <path d="M5.4 8.15l1.75 1.75L10.6 6.3" className="st-mark" />
+          </>
+        )
+      default:
+        return <path d={RING} />
+    }
+  })()
+  return (
+    <svg className={`st st-${state}`} width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+      {body}
+    </svg>
+  )
+}
+
+/** Campo para renombrar en la propia fila: Intro o salir guarda, Esc cancela. */
+function RenameInput({
+  value,
+  label,
+  onDone
+}: {
+  value: string
+  label: string
+  /** name: nuevo nombre, o null si se cancela o no cambia. via: cómo se ha cerrado. */
+  onDone: (name: string | null, via: 'key' | 'blur') => void
+}): React.JSX.Element {
+  const ref = useRef<HTMLInputElement>(null)
+  const closed = useRef(false)
+  useEffect(() => {
+    ref.current?.focus()
+    ref.current?.select()
+  }, [])
+  const finish = (save: boolean, via: 'key' | 'blur'): void => {
+    if (closed.current) return
+    closed.current = true
+    const name = ref.current?.value.trim() ?? ''
+    onDone(save && name && name !== value ? name : null, via)
+  }
+  const stop = (e: React.SyntheticEvent): void => e.stopPropagation()
+  return (
+    <input
+      ref={ref}
+      className="row-rename"
+      defaultValue={value}
+      aria-label={label}
+      spellCheck={false}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          finish(true, 'key')
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          finish(false, 'key')
+        }
+      }}
+      onBlur={() => finish(true, 'blur')}
+      onClick={stop}
+      onDoubleClick={stop}
+      onMouseDown={stop}
+    />
+  )
+}
+
 const MEETING_MIME = 'application/x-meeting'
 const FOLDER_MIME = 'application/x-folder'
-const INDENT = 14
+const INDENT = 16
+const EXPAND_DELAY = 600
+
+type DragItem = { kind: 'meeting' | 'folder'; id: string }
+/** Línea de inserción (centro vertical, en coordenadas del árbol) o carpeta de destino. */
+type Hint = { kind: 'line'; top: number; depth: number } | { kind: 'into'; id: string }
+/** Qué pasará al soltar. reorder: posición exacta (implica orden manual). */
+interface DropPlan {
+  parentId: string | null
+  beforeId: string | null
+  reorder?: boolean
+}
+
+const sameHint = (a: Hint | null, b: Hint | null): boolean => JSON.stringify(a) === JSON.stringify(b)
 
 export function Sidebar(p: Props): React.JSX.Element {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('recent')
   const [menu, setMenu] = useState<string | null>(null)
+  const [dragging, setDragging] = useState<DragItem | null>(null)
+  const [hint, setHint] = useState<Hint | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)
+  /** Fila que se está renombrando. fromKey: se empezó con F2, y el foco vuelve a la fila al acabar. */
+  const [editing, setEditing] = useState<{ id: string; fromKey?: boolean } | null>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<DragItem | null>(null)
+  const planRef = useRef<DropPlan | null>(null)
+  const expandRef = useRef<{ id: string; t: number } | null>(null)
 
   // Reuniones ya ordenadas y agrupadas por carpeta: se calcula una vez por cambio,
   // no en cada render ni por cada carpeta.
@@ -83,6 +234,29 @@ export function Sidebar(p: Props): React.JSX.Element {
     return map
   }, [p.meetings, sortMode])
 
+  const folderById = useMemo(() => new Map(p.folders.map((f) => [f.id, f])), [p.folders])
+  const childFolders = useMemo(() => {
+    const map = new Map<string | null, Folder[]>()
+    for (const f of [...p.folders].sort((a, b) => a.order - b.order)) map.set(f.parentId, [...(map.get(f.parentId) ?? []), f])
+    return map
+  }, [p.folders])
+
+  // Reuniones por carpeta, contando las de sus subcarpetas.
+  const totals = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const m of p.meetings)
+      for (let c = m.folderId; c; c = folderById.get(c)?.parentId ?? null) map.set(c, (map.get(c) ?? 0) + 1)
+    return map
+  }, [p.meetings, folderById])
+
+  // Carpetas que contienen la reunión abierta.
+  const activePath = useMemo(() => {
+    const set = new Set<string>()
+    const sel = p.settingsOpen ? undefined : p.meetings.find((m) => m.id === p.selectedId)
+    for (let c = sel?.folderId ?? null; c; c = folderById.get(c)?.parentId ?? null) set.add(c)
+    return set
+  }, [p.meetings, p.selectedId, p.settingsOpen, folderById])
+
   const q = filter.trim()
   const [results, setResults] = useState<SearchResult[] | null>(null)
   useEffect(() => {
@@ -91,6 +265,26 @@ export function Sidebar(p: Props): React.JSX.Element {
     return () => clearTimeout(t)
   }, [q])
 
+  // Enseñar una carpeta pedida desde fuera (la ruta de la reunión abierta).
+  useEffect(() => {
+    const id = p.reveal
+    if (!id) return
+    p.onRevealed()
+    setFilter('')
+    setCollapsed((s) => {
+      const n = new Set(s)
+      for (let c: string | null = id; c; c = folderById.get(c)?.parentId ?? null) n.delete(c)
+      return n
+    })
+    setFlash(id)
+    setTimeout(() => {
+      treeRef.current?.querySelector(`[data-folder-row="${id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }, 360)
+    setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.reveal])
+
+  const clickTimer = useRef(0)
   const toggle = (id: string): void =>
     setCollapsed((s) => {
       const n = new Set(s)
@@ -99,48 +293,224 @@ export function Sidebar(p: Props): React.JSX.Element {
       return n
     })
 
-  const allow = (e: DragEvent, key: string): void => {
-    const t = e.dataTransfer.types
-    if (t.includes(MEETING_MIME) || t.includes(FOLDER_MIME)) {
+  // ---------- renombrar ----------
+
+  const startRename = (id: string, fromKey?: boolean): void => {
+    setMenu(null)
+    setEditing({ id, fromKey })
+  }
+
+  /** Cierra la edición; si se empezó con el teclado y se cierra con él, devuelve el foco a la fila. */
+  const endRename = (id: string, via: 'key' | 'blur'): void => {
+    const fromKey = editing?.fromKey
+    setEditing((e) => (e?.id === id ? null : e))
+    if (fromKey && via === 'key') {
+      requestAnimationFrame(() =>
+        treeRef.current?.querySelector<HTMLElement>(`[data-meeting="${id}"], [data-folder-row="${id}"]`)?.focus()
+      )
+    }
+  }
+
+  /** Teclado en una fila: Intro abre, F2 renombra. */
+  const rowKeys = (e: React.KeyboardEvent, id: string, open: () => void): void => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
-      e.stopPropagation()
-      setDropTarget(key)
+      open()
+    } else if (e.key === 'F2') {
+      e.preventDefault()
+      startRename(id, true)
     }
   }
 
-  const dropOnFolder = (e: DragEvent, folder: Folder | null): void => {
+  // ---------- arrastrar y soltar ----------
+
+  /** Despliega la carpeta si el puntero se queda encima un rato. */
+  const arm = (id: string | null): void => {
+    const cur = expandRef.current
+    if (cur && cur.id === id) return
+    if (cur) clearTimeout(cur.t)
+    expandRef.current =
+      id && collapsed.has(id)
+        ? {
+            id,
+            t: window.setTimeout(() => {
+              expandRef.current = null
+              setCollapsed((s) => {
+                const n = new Set(s)
+                n.delete(id)
+                return n
+              })
+            }, EXPAND_DELAY)
+          }
+        : null
+  }
+
+  const endDrag = useCallback((): void => {
+    dragRef.current = null
+    planRef.current = null
+    if (expandRef.current) clearTimeout(expandRef.current.t)
+    expandRef.current = null
+    setDragging(null)
+    setHint(null)
+  }, [])
+
+  // dragend llega siempre al terminar: al soltar, con Esc o fuera de la ventana.
+  useEffect(() => {
+    window.addEventListener('dragend', endDrag, true)
+    return () => window.removeEventListener('dragend', endDrag, true)
+  }, [endDrag])
+
+  const startDrag = (e: DragEvent, item: DragItem): void => {
+    e.stopPropagation()
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData(item.kind === 'meeting' ? MEETING_MIME : FOLDER_MIME, item.id)
+    dragRef.current = item
+    setMenu(null)
+    // Tras capturar la imagen de arrastre, para que esta no salga atenuada.
+    setTimeout(() => dragRef.current === item && setDragging(item), 0)
+  }
+
+  const show = (plan: DropPlan | null, next: Hint | null): void => {
+    planRef.current = plan
+    setHint((prev) => (sameHint(prev, next) ? prev : next))
+  }
+
+  const accept = (e: DragEvent): void => {
     e.preventDefault()
     e.stopPropagation()
-    setDropTarget(null)
-    const meetingId = e.dataTransfer.getData(MEETING_MIME)
-    const folderId = e.dataTransfer.getData(FOLDER_MIME)
-    if (meetingId) p.onMoveMeeting(meetingId, folder?.id ?? null, null)
-    if (folderId && folderId !== folder?.id) {
-      // Franja superior de la fila: colocar delante (mismo nivel). Resto: dentro.
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-      const before = folder && e.clientY - rect.top < rect.height * 0.3
-      if (before) p.onMoveFolder(folderId, folder.parentId, folder.id)
-      else p.onMoveFolder(folderId, folder?.id ?? null, null)
-    }
+    e.dataTransfer.dropEffect = 'move'
   }
 
-  const dropOnMeeting = (e: DragEvent, target: MeetingSummary): void => {
-    e.preventDefault()
+  const deny = (e: DragEvent): void => {
     e.stopPropagation()
-    setDropTarget(null)
-    const meetingId = e.dataTransfer.getData(MEETING_MIME)
-    if (meetingId && meetingId !== target.id) {
-      if (sortMode !== 'manual') setSortMode('manual')
-      p.onMoveMeeting(meetingId, target.folderId, target.id)
-    }
+    e.dataTransfer.dropEffect = 'none'
+    show(null, null)
   }
 
-  const countIn = (folderId: string): number => byFolder.get(folderId)?.length ?? 0
+  /** ¿Es id la carpeta ancestor o una de sus descendientes? */
+  const within = (id: string | null, ancestor: string): boolean => {
+    for (let c = id; c; c = folderById.get(c)?.parentId ?? null) if (c === ancestor) return true
+    return false
+  }
+
+  /** Borde de un elemento en coordenadas del árbol, centrado en el hueco entre filas. */
+  const yIn = (el: Element | null, edge: 'top' | 'bottom'): number => {
+    const tree = treeRef.current
+    if (!tree || !el) return 2
+    const r = el.getBoundingClientRect()
+    return Math.round((edge === 'top' ? r.top - 1 : r.bottom + 1) - tree.getBoundingClientRect().top + tree.scrollTop)
+  }
+
+  const line = (top: number, depth: number): Hint => ({ kind: 'line', top, depth })
+
+  // Las carpetas van siempre antes que las reuniones: el final de las de la raíz.
+  const afterRootFolders = (skip: string): Hint => {
+    const last = (childFolders.get(null) ?? []).filter((f) => f.id !== skip).at(-1)
+    const el = last ? (treeRef.current?.querySelector(`[data-folder="${last.id}"]`) ?? null) : null
+    return line(el ? yIn(el, 'bottom') : 2, 0)
+  }
+
+  const overMeeting = (e: DragEvent<HTMLElement>, m: MeetingSummary, depth: number): void => {
+    const d = dragRef.current
+    if (!d) return
+    arm(null)
+    if (d.kind === 'folder') {
+      if (within(m.folderId, d.id)) return deny(e)
+      accept(e)
+      return m.folderId
+        ? show({ parentId: m.folderId, beforeId: null }, { kind: 'into', id: m.folderId })
+        : show({ parentId: null, beforeId: null }, afterRootFolders(d.id))
+    }
+    accept(e)
+    if (d.id === m.id) return show(null, null)
+    const el = e.currentTarget
+    const r = el.getBoundingClientRect()
+    const after = e.clientY > r.top + r.height / 2
+    const list = (byFolder.get(m.folderId) ?? []).filter((x) => x.id !== d.id)
+    const i = list.findIndex((x) => x.id === m.id)
+    show(
+      { parentId: m.folderId, beforeId: after ? (list[i + 1]?.id ?? null) : m.id, reorder: true },
+      line(yIn(el, after ? 'bottom' : 'top'), depth)
+    )
+  }
+
+  const overFolder = (e: DragEvent<HTMLElement>, f: Folder, depth: number, open: boolean): void => {
+    const d = dragRef.current
+    if (!d) return
+    if (d.kind === 'folder' && within(f.id, d.id)) {
+      arm(null)
+      return deny(e)
+    }
+    accept(e)
+    arm(f.id)
+    const into = (): void => show({ parentId: f.id, beforeId: null }, { kind: 'into', id: f.id })
+    if (d.kind === 'meeting') return into()
+    // Franja superior: delante. Inferior: detrás (o la primera dentro si está abierta). Centro: dentro.
+    const el = e.currentTarget
+    const r = el.getBoundingClientRect()
+    const y = (e.clientY - r.top) / r.height
+    if (y < 0.25) return show({ parentId: f.parentId, beforeId: f.id }, line(yIn(el, 'top'), depth))
+    if (y <= 0.75) return into()
+    const kids = (childFolders.get(f.id) ?? []).filter((x) => x.id !== d.id)
+    if (open && (kids.length > 0 || byFolder.has(f.id))) {
+      return show({ parentId: f.id, beforeId: kids[0]?.id ?? null }, line(yIn(el, 'bottom'), depth + 1))
+    }
+    const sibs = (childFolders.get(f.parentId) ?? []).filter((x) => x.id !== d.id)
+    const i = sibs.findIndex((x) => x.id === f.id)
+    show({ parentId: f.parentId, beforeId: sibs[i + 1]?.id ?? null }, line(yIn(el.parentElement, 'bottom'), depth))
+  }
+
+  const overEmpty = (e: DragEvent, f: Folder): void => {
+    const d = dragRef.current
+    if (!d) return
+    arm(null)
+    if (d.kind === 'folder' && within(f.id, d.id)) return deny(e)
+    accept(e)
+    show({ parentId: f.id, beforeId: null }, { kind: 'into', id: f.id })
+  }
+
+  // Zona libre al final de la lista: la raíz.
+  const overEnd = (e: DragEvent<HTMLElement>): void => {
+    const d = dragRef.current
+    if (!d) return
+    arm(null)
+    accept(e)
+    if (d.kind === 'folder') return show({ parentId: null, beforeId: null }, afterRootFolders(d.id))
+    show({ parentId: null, beforeId: null, reorder: true }, line(yIn(e.currentTarget, 'top'), 0))
+  }
+
+  const drop = (e: DragEvent): void => {
+    const d = dragRef.current
+    const plan = planRef.current
+    if (!d) return
+    e.preventDefault()
+    endDrag()
+    if (!plan) return
+    if (d.kind === 'folder') return p.onMoveFolder(d.id, plan.parentId, plan.beforeId)
+    // Recolocar con otro orden activo: se parte del orden visible y se pasa a manual.
+    const shown = plan.reorder && sortMode !== 'manual' ? (byFolder.get(plan.parentId) ?? []).map((m) => m.id) : undefined
+    if (shown) setSortMode('manual')
+    p.onMoveMeeting(d.id, plan.parentId, plan.beforeId, shown)
+  }
 
   const renderMeetings = (folderId: string | null, depth: number): React.JSX.Element[] =>
     (byFolder.get(folderId) ?? []).map((m) => {
       const recording = m.id === p.recordingId
       const selected = m.id === p.selectedId && !p.settingsOpen
+      const renaming = editing?.id === m.id
+      const state: RowState = recording
+        ? p.recordingPaused
+          ? 'paused'
+          : 'recording'
+        : m.id === p.summarizingId
+          ? 'summary'
+          : m.status === 'processing' || m.status === 'recording'
+            ? 'processing'
+            : m.status === 'pending' || m.status === 'error' || m.status === 'done'
+              ? m.status
+              : 'idle'
+      const info = STATE_INFO[state]
       return (
         <motion.div
           key={m.id}
@@ -151,41 +521,55 @@ export function Sidebar(p: Props): React.JSX.Element {
           transition={soft}
         >
           <div
-            className={['row row-meeting', selected ? 'selected' : '', dropTarget === m.id ? 'drop' : ''].join(' ')}
-            style={{ paddingLeft: 8 + depth * INDENT }}
-            draggable
-            onDragStart={(e) => e.dataTransfer.setData(MEETING_MIME, m.id)}
-            onDragOver={(e) => allow(e, m.id)}
-            onDragLeave={() => setDropTarget(null)}
-            onDrop={(e) => dropOnMeeting(e, m)}
-            onClick={() => p.onSelect(m.id)}
+            className={[
+              'row row-meeting',
+              selected ? 'selected' : '',
+              renaming ? 'editing' : '',
+              dragging?.id === m.id ? 'dragging' : ''
+            ].join(' ')}
+            style={{ marginLeft: depth * INDENT }}
+            data-meeting={m.id}
+            tabIndex={0}
+            aria-current={selected || undefined}
+            draggable={!renaming}
+            onDragStart={(e) => startDrag(e, { kind: 'meeting', id: m.id })}
+            onDragOver={(e) => overMeeting(e, m, depth)}
+            // El segundo clic de un doble clic no vuelve a abrir la reunión.
+            onClick={(e) => !renaming && e.detail < 2 && p.onSelect(m.id)}
+            onKeyDown={(e) => rowKeys(e, m.id, () => p.onSelect(m.id))}
           >
             {selected && <motion.span layoutId="row-selected" className="row-selected-bg" transition={soft} />}
-            <span className="row-lead">
-              {recording ? (
-                <span className="rec-dot" />
-              ) : m.status === 'processing' ? (
-                <Loader2 size={13} className="spin" />
-              ) : m.status === 'pending' ? (
-                <Clock size={13} className="row-pending" />
-              ) : (
-                <span className="row-bullet" />
-              )}
+            <span className="row-lead" title={info.tip} aria-label={info.tip}>
+              <StateIcon state={state} />
             </span>
-            <span className="row-body">
-              <span className="row-title">{m.title}</span>
+            <span className="row-body" onDoubleClick={() => startRename(m.id)}>
+              {renaming ? (
+                <RenameInput
+                  value={m.title}
+                  label="Nombre de la reunión"
+                  onDone={(title, via) => {
+                    endRename(m.id, via)
+                    if (title) p.onRenameMeeting(m.id, title)
+                  }}
+                />
+              ) : (
+                <span className="row-title">{m.title}</span>
+              )}
               <span className="row-sub">
-                {recording ? 'Grabando ahora' : m.status === 'pending' ? 'Pendiente de transcribir' : fmtDate(m.createdAt)}
-                {!recording && m.durationSec > 0 && <> · {fmtDuration(m.durationSec)}</>}
+                {info.sub ? <span className={`row-state st-${state}`}>{info.sub}</span> : fmtDate(m.createdAt)}
+                {/* Mientras dura una tarea, su estado ocupa el subtítulo entero. */}
+                {!info.live && m.durationSec > 0 && <> · {fmtDuration(m.durationSec)}</>}
               </span>
             </span>
             <button
               className="row-action"
               title="Eliminar reunión"
+              tabIndex={-1}
               onClick={(e) => {
                 e.stopPropagation()
                 p.onDeleteMeeting(m)
               }}
+              onDoubleClick={(e) => e.stopPropagation()}
             >
               <Trash2 size={13} />
             </button>
@@ -195,90 +579,145 @@ export function Sidebar(p: Props): React.JSX.Element {
     })
 
   const renderFolders = (parentId: string | null, depth: number): React.JSX.Element[] =>
-    p.folders
-      .filter((f) => f.parentId === parentId)
-      .sort((a, b) => a.order - b.order)
-      .map((f) => {
-        const isOpen = !collapsed.has(f.id) || !!q
-        return (
-          <motion.div key={f.id} layout="position" transition={soft}>
-            <div
-              className={['row row-folder', dropTarget === f.id ? 'drop' : '', menu === f.id ? 'menu-open' : ''].join(' ')}
-              style={{ paddingLeft: 4 + depth * INDENT }}
-              draggable
-              onDragStart={(e) => e.dataTransfer.setData(FOLDER_MIME, f.id)}
-              onDragOver={(e) => allow(e, f.id)}
-              onDragLeave={() => setDropTarget(null)}
-              onDrop={(e) => dropOnFolder(e, f)}
-              onClick={() => toggle(f.id)}
-              onDoubleClick={() => p.onRenameFolder(f)}
-            >
-              <motion.span className="row-chev" animate={{ rotate: isOpen ? 90 : 0 }} transition={quick}>
-                <ChevronRight size={13} />
-              </motion.span>
+    (childFolders.get(parentId) ?? []).map((f) => {
+      const isOpen = !collapsed.has(f.id) || !!q
+      const total = totals.get(f.id) ?? 0
+      const isEmpty = !childFolders.has(f.id) && !byFolder.has(f.id)
+      const into = hint?.kind === 'into' && hint.id === f.id
+      const renaming = editing?.id === f.id
+      return (
+        <motion.div
+          key={f.id}
+          layout="position"
+          transition={soft}
+          data-folder={f.id}
+          className={[
+            'folder-block',
+            activePath.has(f.id) ? 'in-path' : '',
+            into ? 'drop-into' : '',
+            dragging?.id === f.id ? 'dragging' : ''
+          ].join(' ')}
+        >
+          <div
+            className={[
+              'row row-folder',
+              isOpen ? 'open' : '',
+              into ? 'drop' : '',
+              menu === f.id ? 'menu-open' : '',
+              renaming ? 'editing' : '',
+              flash === f.id ? 'flash' : ''
+            ].join(' ')}
+            style={{ marginLeft: depth * INDENT }}
+            data-folder-row={f.id}
+            tabIndex={0}
+            aria-expanded={isOpen}
+            draggable={!renaming}
+            onDragStart={(e) => startDrag(e, { kind: 'folder', id: f.id })}
+            onDragOver={(e) => overFolder(e, f, depth, isOpen)}
+            onClick={(e) => {
+              if (renaming) return
+              // La flecha pliega al momento; el resto de la fila espera por si es un doble clic (renombrar).
+              if ((e.target as HTMLElement).closest('.row-chev')) return toggle(f.id)
+              clearTimeout(clickTimer.current)
+              if (e.detail === 1) clickTimer.current = window.setTimeout(() => toggle(f.id), 220)
+            }}
+            onKeyDown={(e) => rowKeys(e, f.id, () => toggle(f.id))}
+            onDoubleClick={() => {
+              if (renaming) return
+              clearTimeout(clickTimer.current)
+              startRename(f.id)
+            }}
+          >
+            <motion.span className="row-chev" animate={{ rotate: isOpen ? 90 : 0 }} transition={quick}>
+              <ChevronRight size={13} />
+            </motion.span>
+            {isOpen ? (
+              <FolderOpen size={14} className="row-folder-icon" />
+            ) : (
               <FolderIcon size={14} className="row-folder-icon" />
+            )}
+            {renaming ? (
+              <RenameInput
+                value={f.name}
+                label="Nombre de la carpeta"
+                onDone={(name, via) => {
+                  endRename(f.id, via)
+                  if (name) p.onRenameFolder(f, name)
+                }}
+              />
+            ) : (
               <span className="row-title">{f.name}</span>
-              <span className="row-count">{countIn(f.id) || ''}</span>
-              <span className="row-tools">
+            )}
+            <span className="row-count" title={`${total} ${total === 1 ? 'reunión' : 'reuniones'}`}>
+              {total || ''}
+            </span>
+            {/* Los clics en las herramientas y su menú no pliegan la carpeta. */}
+            <span className="row-tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+              <button
+                className="row-action"
+                title="Nueva reunión en esta carpeta"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  p.onNewMeeting(f.id)
+                }}
+              >
+                <Plus size={13} />
+              </button>
+              <span className="anchor">
                 <button
                   className="row-action"
-                  title="Nueva reunión en esta carpeta"
+                  title="Más opciones"
                   onClick={(e) => {
                     e.stopPropagation()
-                    p.onNewMeeting(f.id)
+                    setMenu(menu === f.id ? null : f.id)
                   }}
                 >
-                  <Plus size={13} />
+                  <MoreHorizontal size={13} />
                 </button>
-                <span className="anchor">
-                  <button
-                    className="row-action"
-                    title="Más opciones"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setMenu(menu === f.id ? null : f.id)
-                    }}
-                  >
-                    <MoreHorizontal size={13} />
-                  </button>
-                  <Popover open={menu === f.id} onClose={() => setMenu(null)} align="right">
-                    <MenuItem icon={<FilePlus2 size={14} />} onClick={() => { setMenu(null); p.onNewMeeting(f.id) }}>
-                      Nueva reunión
-                    </MenuItem>
-                    <MenuItem icon={<FolderPlus size={14} />} onClick={() => { setMenu(null); p.onNewFolder(f.id) }}>
-                      Nueva subcarpeta
-                    </MenuItem>
-                    <MenuItem icon={<Pencil size={14} />} onClick={() => { setMenu(null); p.onRenameFolder(f) }}>
-                      Renombrar
-                    </MenuItem>
-                    <div className="menu-sep" />
-                    <MenuItem danger icon={<Trash2 size={14} />} onClick={() => { setMenu(null); p.onDeleteFolder(f) }}>
-                      Eliminar carpeta
-                    </MenuItem>
-                  </Popover>
-                </span>
+                <Popover open={menu === f.id} onClose={() => setMenu(null)} align="right">
+                  <MenuItem icon={<FilePlus2 size={14} />} onClick={() => { setMenu(null); p.onNewMeeting(f.id) }}>
+                    Nueva reunión
+                  </MenuItem>
+                  <MenuItem icon={<FolderPlus size={14} />} onClick={() => { setMenu(null); p.onNewFolder(f.id) }}>
+                    Nueva subcarpeta
+                  </MenuItem>
+                  <MenuItem icon={<Pencil size={14} />} onClick={() => startRename(f.id)}>
+                    Renombrar
+                  </MenuItem>
+                  <div className="menu-sep" />
+                  <MenuItem danger icon={<Trash2 size={14} />} onClick={() => { setMenu(null); p.onDeleteFolder(f) }}>
+                    Eliminar carpeta
+                  </MenuItem>
+                </Popover>
               </span>
-            </div>
-            <AnimatePresence initial={false}>
-              {isOpen && (
-                <motion.div
-                  key="children"
-                  className="row-children"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={soft}
-                >
-                  <AnimatePresence initial={false}>
-                    {renderFolders(f.id, depth + 1)}
-                    {renderMeetings(f.id, depth + 1)}
-                  </AnimatePresence>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-        )
-      })
+            </span>
+          </div>
+          <AnimatePresence initial={false}>
+            {isOpen && (
+              <motion.div
+                key="children"
+                className="row-children"
+                style={{ '--guide': `${12 + depth * INDENT}px` } as React.CSSProperties}
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={soft}
+              >
+                <AnimatePresence initial={false}>
+                  {renderFolders(f.id, depth + 1)}
+                  {renderMeetings(f.id, depth + 1)}
+                </AnimatePresence>
+                {isEmpty && (
+                  <div className="row-empty" style={{ paddingLeft: 30 + depth * INDENT }} onDragOver={(e) => overEmpty(e, f)}>
+                    Vacía
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )
+    })
 
   const empty = p.meetings.length === 0 && p.folders.length === 0
 
@@ -355,20 +794,32 @@ export function Sidebar(p: Props): React.JSX.Element {
         </div>
       ) : (
       <div
-        className={['tree', dropTarget === 'root' ? 'drop' : ''].join(' ')}
-        onDragOver={(e) => allow(e, 'root')}
-        onDragLeave={() => setDropTarget(null)}
-        onDrop={(e) => dropOnFolder(e, null)}
+        ref={treeRef}
+        className={['tree', dragging ? 'is-dragging' : ''].join(' ')}
+        // Los huecos entre filas mantienen la última indicación.
+        onDragOver={(e) => dragRef.current && e.preventDefault()}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            arm(null)
+            show(null, null)
+          }
+        }}
+        onDrop={drop}
       >
         <AnimatePresence initial={false}>
           {renderFolders(null, 0)}
           {renderMeetings(null, 0)}
         </AnimatePresence>
-        {empty && (
+        {empty ? (
           <div className="tree-empty">
             <p>Todavía no hay reuniones</p>
             <span>Crea una y pulsa Grabar cuando empiece la llamada.</span>
           </div>
+        ) : (
+          <div className="tree-end" onDragOver={overEnd} />
+        )}
+        {hint?.kind === 'line' && (
+          <div className="drop-line" style={{ left: 20 + hint.depth * INDENT, transform: `translateY(${hint.top}px)` }} />
         )}
       </div>
       )}
@@ -391,6 +842,7 @@ export function Sidebar(p: Props): React.JSX.Element {
             </motion.button>
           )}
         </AnimatePresence>
+        <LocalAiPill onOpen={p.onOpenLocalAi} />
         <button className={`nav-item ${p.settingsOpen ? 'active' : ''}`} onClick={p.onOpenSettings}>
           <SettingsIcon size={15} /> <span>Configuración</span>
         </button>

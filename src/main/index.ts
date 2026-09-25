@@ -2,10 +2,12 @@ import { randomUUID } from 'crypto'
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, screen, session, shell } from 'electron'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import icon from '../../resources/icon.png?asset'
 import {
   ME,
   OTHERS,
+  type ApiKeys,
   type AudioChannel,
   type Folder,
   type LiveEvent,
@@ -15,7 +17,8 @@ import {
   type Settings,
   type UpdateState
 } from '../shared/types'
-import { BUILTIN_PROMPTS, DEFAULT_SPEAKER_ID_PROMPT, loadSettings, rememberPeople, saveSettings } from './settings'
+import { finalProviderFor, liveProviderFor } from '../shared/languages'
+import { BUILTIN_PROMPTS, DEFAULT_SPEAKER_ID_PROMPT, keySources, loadSettings, rememberPeople, saveSettings } from './settings'
 import {
   applyFinalTranscript,
   ensureSpeaker,
@@ -30,8 +33,12 @@ import { applyLoginItem, claimSingleInstance, setupBackground, startHidden } fro
 import { classify, explain, isFatalLive, isRecoverable } from './failures'
 import { handleMediaRequests, registerMediaScheme } from './media'
 import { registerMini } from './mini'
+import { checkKey } from './keycheck'
+import { ollamaStatus } from './ollama'
+import { assertLocalAiReady, registerLocalAi } from './local-ai-ipc'
 import * as store from './store'
 import { buildMeetingDocument, suggestSpeakerNames, summarize, transcriptText } from './summarize'
+import { registerWindowControls, watchMaximize } from './titlebar'
 import { createLiveSession, transcribeFile } from './transcription'
 import type { LiveSession, RawSegment } from './transcription/types'
 import { checkForUpdates, getUpdateState, initUpdater, installUpdate } from './updater'
@@ -57,6 +64,9 @@ function createWindow(): void {
     minWidth: 380,
     minHeight: 560,
     title: 'Meeting Notes',
+    // Sin la barra de título de Windows: la dibuja la app (TitleBar). Se conservan el
+    // borde para redimensionar, el acople a los lados de la pantalla y la sombra.
+    titleBarStyle: 'hidden',
     autoHideMenuBar: true,
     backgroundColor: '#121214',
     icon,
@@ -69,6 +79,7 @@ function createWindow(): void {
       backgroundThrottling: false
     }
   })
+  watchMaximize(win)
   if (process.env['ELECTRON_RENDERER_URL']) win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   else win.loadFile(join(__dirname, '../renderer/index.html'))
 }
@@ -121,6 +132,11 @@ async function listScreens(): Promise<ScreenSource[]> {
 }
 
 function startRecording(meetingId: string, channels: AudioChannel[], withScreen = false): void {
+  const existing = store.getMeeting(meetingId)
+  // Una reunión, una grabación: grabar encima perdería la anterior y mezclaría a las personas.
+  if (store.audioTrack(meetingId, 'mix') || existing?.transcript.length) {
+    throw new Error('Esta reunión ya está grabada. Crea una nueva para grabar otra.')
+  }
   const settings = loadSettings()
   stopLiveSessions()
   const r: ActiveRecording = { meetingId, sessions: new Map(), rawToSpeaker: new Map() }
@@ -151,7 +167,7 @@ function startRecording(meetingId: string, channels: AudioChannel[], withScreen 
         onStatus: (status) => emitLive({ type: 'status', channel, status }),
         onError: (message) => {
           if (!isFatalLive(message)) return emitLive({ type: 'error', message })
-          const provider = LIVE_NAMES[settings.liveProvider] ?? settings.liveProvider
+          const provider = LIVE_NAMES[liveProviderFor(settings)] ?? settings.liveProvider
           emitLive({
             type: 'degraded',
             channel,
@@ -235,7 +251,7 @@ async function finalPass(meetingId: string): Promise<void> {
   } catch (err) {
     const message = (err as Error).message
     const kind = classify(message)
-    const provider = FINAL_NAMES[settings.finalProvider] ?? settings.finalProvider
+    const provider = FINAL_NAMES[finalProviderFor(settings)] ?? settings.finalProvider
     // Sin crédito, sin conexión o con la clave mal: la grabación está a salvo y se procesará más tarde.
     mutate(meetingId, (m) => {
       m.status = isRecoverable(kind) ? 'pending' : 'error'
@@ -253,8 +269,10 @@ async function withLlmErrors<T>(fn: () => Promise<T>): Promise<T> {
   } catch (err) {
     const message = (err as Error).message
     const kind = classify(message)
-    if (kind === 'other') throw err
-    const provider = loadSettings().llmProvider === 'openai' ? 'OpenAI' : 'Anthropic'
+    const llm = loadSettings().llmProvider
+    // El cliente de Ollama ya devuelve mensajes claros (no está abierto, falta el modelo…).
+    if (kind === 'other' || llm === 'ollama') throw err
+    const provider = llm === 'openai' ? 'OpenAI' : 'Anthropic'
     const hint = kind === 'credits' ? ' Recarga saldo en su consola y vuelve a intentarlo.' : kind === 'auth' ? ' Revísala en Configuración > API keys.' : ' Vuelve a intentarlo en unos minutos.'
     throw new Error(`${explain(provider, kind)}.${hint}`)
   }
@@ -291,6 +309,9 @@ function registerIpc(): void {
     if (JSON.stringify(before.keys) !== JSON.stringify(s.keys) || before.finalProvider !== s.finalProvider) retryPending()
   })
   ipcMain.handle('meeting:retryPending', () => retryPending())
+  ipcMain.handle('ollama:status', (_e, url: string) => ollamaStatus(url))
+  ipcMain.handle('keys:sources', () => keySources())
+  ipcMain.handle('keys:check', (_e, provider: keyof ApiKeys, key: string) => checkKey(provider, key))
   ipcMain.handle('settings:defaults', () => ({
     prompts: BUILTIN_PROMPTS,
     speakerIdPrompt: DEFAULT_SPEAKER_ID_PROMPT
@@ -358,7 +379,13 @@ function registerIpc(): void {
     if (canceled || !filePath) return
     const notes = [...m.sections]
       .sort((a, b) => a.order - b.order)
-      .map((s) => `### ${s.title}\n\n${s.content}`)
+      .map((s) => {
+        const images = (s.attachments ?? []).flatMap((a) => {
+          const file = store.attachmentPath(m.id, a.file)
+          return file ? [`![${a.name.replace(/[[\]\\]/g, '')}](${pathToFileURL(file).href})`] : []
+        })
+        return [`### ${s.title}`, s.content, ...images].filter(Boolean).join('\n\n')
+      })
       .join('\n\n')
     writeFileSync(
       filePath,
@@ -395,7 +422,9 @@ function registerIpc(): void {
   ipcMain.handle('speaker:suggest', async (_e, meetingId: string) => {
     const m = store.getMeeting(meetingId)
     if (!m) throw new Error('Reunión no encontrada')
-    return withLlmErrors(() => suggestSpeakerNames(m, loadSettings()))
+    const s = loadSettings()
+    assertLocalAiReady(s)
+    return withLlmErrors(() => suggestSpeakerNames(m, s))
   })
 
   // grabación
@@ -422,6 +451,13 @@ function registerIpc(): void {
     const file = store.audioTrack(id, 'screen')
     if (file) shell.showItemInFolder(file)
   })
+  // imágenes de las notas
+  ipcMain.handle('attachment:add', (_e, meetingId: string, bytes: Uint8Array) => store.saveAttachment(meetingId, bytes))
+  ipcMain.handle('attachment:remove', (_e, meetingId: string, file: string) => store.removeAttachment(meetingId, file))
+  ipcMain.handle('attachment:show', (_e, meetingId: string, file: string) => {
+    const path = store.attachmentPath(meetingId, file)
+    if (path) shell.showItemInFolder(path)
+  })
   ipcMain.on('recording:webm', (_e, meetingId: string, track: RecordingTrack, chunk: Uint8Array) =>
     store.appendAudio(meetingId, track, chunk)
   )
@@ -441,8 +477,10 @@ function registerIpc(): void {
   ipcMain.handle('summary:generate', async (_e, id: string, promptId: string) => {
     const m = store.getMeeting(id)
     if (!m) throw new Error('Reunión no encontrada')
+    const settings = loadSettings()
+    assertLocalAiReady(settings)
     const summary = await withLlmErrors(() =>
-      summarize(m, loadSettings(), promptId, (delta) => emit('summary:delta', { meetingId: id, delta }))
+      summarize(m, settings, promptId, (delta) => emit('summary:delta', { meetingId: id, delta }))
     )
     mutate(id, (x) => {
       x.summary = summary
@@ -452,7 +490,8 @@ function registerIpc(): void {
   })
   ipcMain.handle('meeting:document', (_e, id: string) => {
     const m = store.getMeeting(id)
-    return m ? buildMeetingDocument(m, loadSettings().myName) : ''
+    const s = loadSettings()
+    return m ? buildMeetingDocument(m, s.myName, s.glossary) : ''
   })
 }
 
@@ -460,6 +499,8 @@ app.whenReady().then(() => {
   if (!primary) return
   store.initStore()
   registerIpc()
+  registerLocalAi(emit)
+  registerWindowControls()
   registerMini(() => win, icon)
   handleMediaRequests()
 

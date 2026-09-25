@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { AlertCircle, ArrowDown, AudioLines, Clock, Play, RefreshCw, UserPlus, UserRound, WifiOff } from 'lucide-react'
-import { ME, OTHERS, speakerLabel, type Meeting, type TranscriptSegment } from '@shared/types'
+import { ME, OTHERS, speakerLabel, type GlossaryEntry, type Meeting, type TranscriptSegment } from '@shared/types'
 import { fmtTime, highlightParts, speakerColor } from '../util'
-import { AudioPlayer, type PlayerHandle } from './AudioPlayer'
+import { Player, type PlayerHandle, type PlayerMark } from './Player'
 import { Avatar } from './SpeakersBar'
+import { GlossText, SelectionMenu, splitGloss, useGlossMarks } from './TranscriptGlossary'
 import { Popover, soft, Spinner } from './ui'
 
 export interface LivePartial {
@@ -24,6 +25,8 @@ interface Props {
   onRetranscribe: () => void
   /** Texto buscado: se resalta y se salta a la primera coincidencia. */
   highlight?: string
+  glossary: GlossaryEntry[]
+  onGlossary: (g: GlossaryEntry[]) => void
 }
 
 interface Turn {
@@ -64,11 +67,24 @@ export function TranscriptView(p: Props): React.JSX.Element {
   const activeId =
     playTime === null ? null : (m.transcript.find((s) => playTime >= s.start && playTime < s.end + 0.3)?.id ?? null)
   const canPlay = m.hasAudio && !p.recording
+  // Turnos de palabra para la franja de colores del reproductor.
+  const marks = useMemo(() => {
+    const out: PlayerMark[] = []
+    for (const s of m.transcript) {
+      const last = out[out.length - 1]
+      const sp = m.speakers[s.speakerId]
+      const label = speakerLabel(sp, p.myName)
+      if (last && last.label === label && s.start - last.end < 2) last.end = Math.max(last.end, s.end)
+      else out.push({ start: s.start, end: s.end, color: speakerColor(s.speakerId, sp?.index ?? 0), label })
+    }
+    return out
+  }, [m.transcript, m.speakers, p.myName])
   const scroller = useRef<HTMLDivElement>(null)
   const [stick, setStick] = useState(true)
   const [menu, setMenu] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const gloss = useGlossMarks(p.glossary, m.transcript)
 
   useLayoutEffect(() => {
     const el = scroller.current
@@ -97,7 +113,13 @@ export function TranscriptView(p: Props): React.JSX.Element {
   const empty = turns.length === 0 && livePartials.length === 0
 
   return (
-    <div className={`transcript ${canPlay ? 'has-player' : ''}`}>
+    <div
+      className="transcript"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (canPlay && player.current?.handleKey(e)) e.preventDefault()
+      }}
+    >
       <AnimatePresence>
         {m.status === 'processing' && (
           <motion.div className="banner" {...bannerMotion}>
@@ -139,195 +161,208 @@ export function TranscriptView(p: Props): React.JSX.Element {
         )}
       </AnimatePresence>
 
-      <div className="transcript-scroll" ref={scroller} onScroll={onScroll}>
-        {empty ? (
-          <motion.div className="empty" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={soft}>
-            <div className={`empty-icon ${p.recording ? 'listening' : ''}`}>
-              <AudioLines size={22} />
-            </div>
-            {p.recording ? (
-              <>
-                <h4>{p.liveNotice ? 'Grabando sin transcripción en vivo' : 'Escuchando'}</h4>
-                <p>
-                  {p.liveNotice
-                    ? 'El texto aparecerá cuando se procese la grabación.'
-                    : 'El texto aparecerá aquí en cuanto alguien hable.'}
-                </p>
-              </>
-            ) : m.status === 'pending' ? (
-              <>
-                <h4>Transcripción pendiente</h4>
-                <p>La grabación está guardada: puedes escucharla abajo mientras tanto.</p>
-              </>
-            ) : (
-              <>
-                <h4>Sin transcripción</h4>
-                <p>
-                  Pulsa <strong>Grabar</strong> cuando empiece la reunión. Funciona con Teams, Google Meet, Zoom, Discord o
-                  cualquier aplicación que suene en el equipo.
-                </p>
-              </>
-            )}
-          </motion.div>
-        ) : (
-          <div className="turns">
-            <AnimatePresence initial={false}>
-              {turns.map((t) => {
-                const sp = m.speakers[t.speakerId]
-                const color = speakerColor(t.speakerId, sp?.index ?? 0)
-                return (
+      <div className="transcript-main">
+        <div className="transcript-scroll" ref={scroller} onScroll={onScroll}>
+          {empty ? (
+            <motion.div className="empty" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={soft}>
+              <div className={`empty-icon ${p.recording ? 'listening' : ''}`}>
+                <AudioLines size={22} />
+              </div>
+              {p.recording ? (
+                <>
+                  <h4>{p.liveNotice ? 'Grabando sin transcripción en vivo' : 'Escuchando'}</h4>
+                  <p>
+                    {p.liveNotice
+                      ? 'El texto aparecerá cuando se procese la grabación.'
+                      : 'El texto aparecerá aquí en cuanto alguien hable.'}
+                  </p>
+                </>
+              ) : m.status === 'pending' ? (
+                <>
+                  <h4>Transcripción pendiente</h4>
+                  <p>La grabación está guardada: puedes escucharla abajo mientras tanto.</p>
+                </>
+              ) : (
+                <>
+                  <h4>Sin transcripción</h4>
+                  <p>
+                    Pulsa <strong>Grabar</strong> cuando empiece la reunión. Funciona con Teams, Google Meet, Zoom, Discord o
+                    cualquier aplicación que suene en el equipo.
+                  </p>
+                </>
+              )}
+            </motion.div>
+          ) : (
+            <div className="turns">
+              <AnimatePresence initial={false}>
+                {turns.map((t) => {
+                  const sp = m.speakers[t.speakerId]
+                  const color = speakerColor(t.speakerId, sp?.index ?? 0)
+                  return (
+                    <motion.div
+                      key={t.key}
+                      className={`turn ${t.speakerId === ME ? 'me' : ''}`}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={soft}
+                    >
+                      <Avatar speaker={sp} label={label(t.speakerId)} size={28} />
+                      <div className="turn-body">
+                        <div className="turn-head">
+                          <span className="anchor">
+                            <button
+                              className="turn-name"
+                              style={{ color }}
+                              onClick={() => setMenu(menu === t.key ? null : t.key)}
+                              title="Cambiar quién dice esto"
+                            >
+                              {label(t.speakerId)}
+                            </button>
+                            <Popover open={menu === t.key} onClose={() => setMenu(null)} className="pop-speaker">
+                              <div className="menu-heading">¿Quién dice esto?</div>
+                              {!m.speakers[ME] && (
+                                <button className="menu-item" onClick={() => { setMenu(null); p.onReassign(t.segments.map((s) => s.id), ME) }}>
+                                  <span className="mi-icon"><UserRound size={14} /></span>
+                                  <span className="mi-label">Yo</span>
+                                </button>
+                              )}
+                              {speakers.map((s) => (
+                                <button
+                                  key={s.id}
+                                  className={`menu-item ${s.id === t.speakerId ? 'current' : ''}`}
+                                  onClick={() => {
+                                    setMenu(null)
+                                    if (s.id !== t.speakerId) p.onReassign(t.segments.map((x) => x.id), s.id)
+                                  }}
+                                >
+                                  <Avatar speaker={s} label={label(s.id)} size={18} />
+                                  <span className="mi-label">{label(s.id)}</span>
+                                </button>
+                              ))}
+                              <div className="menu-sep" />
+                              <button className="menu-item" onClick={() => { setMenu(null); p.onReassign(t.segments.map((s) => s.id), 'new') }}>
+                                <span className="mi-icon"><UserPlus size={14} /></span>
+                                <span className="mi-label">Persona nueva</span>
+                              </button>
+                            </Popover>
+                          </span>
+                          {canPlay ? (
+                            <button className="turn-time seek" onClick={() => player.current?.playFrom(t.start)} title="Escuchar desde aquí">
+                              <Play size={9} fill="currentColor" /> {fmtTime(t.start)}
+                            </button>
+                          ) : (
+                            <span className="turn-time">{fmtTime(t.start)}</span>
+                          )}
+                          {langs.mixed && t.segments[0].lang && t.segments[0].lang !== langs.main && (
+                            <span className="lang-tag" title="Idioma detectado">{t.segments[0].lang.toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="turn-text">
+                          {t.segments.map((s) =>
+                            editing === s.id ? (
+                              <textarea
+                                key={s.id}
+                                className="seg-edit"
+                                autoFocus
+                                value={draft}
+                                onChange={(e) => setDraft(e.target.value)}
+                                onBlur={() => {
+                                  setEditing(null)
+                                  if (draft.trim() && draft !== s.text) p.onEditSegment(s.id, draft.trim())
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault()
+                                    ;(e.target as HTMLTextAreaElement).blur()
+                                  }
+                                  if (e.key === 'Escape') setEditing(null)
+                                }}
+                              />
+                            ) : (
+                              <span
+                                key={s.id}
+                                className={`seg ${s.id === activeId ? 'playing' : ''}`}
+                                onDoubleClick={() => {
+                                  setEditing(s.id)
+                                  setDraft(s.text)
+                                }}
+                                title="Doble clic para corregir el texto"
+                              >
+                                {p.highlight ? (
+                                  highlightParts(s.text, p.highlight).map((part, i) =>
+                                    part.hit ? (
+                                      <mark key={i}>{part.text}</mark>
+                                    ) : (
+                                      <GlossText key={i} parts={splitGloss(part.text, gloss.find, gloss.meanings)} />
+                                    )
+                                  )
+                                ) : gloss.bySegment.has(s.id) ? (
+                                  <GlossText parts={gloss.bySegment.get(s.id)!} />
+                                ) : (
+                                  s.text
+                                )}{' '}
+                              </span>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )
+                })}
+                {livePartials.map((x, i) => (
                   <motion.div
-                    key={t.key}
-                    className={`turn ${t.speakerId === ME ? 'me' : ''}`}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
+                    key={`partial-${i}`}
+                    className="turn partial"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
                     transition={soft}
                   >
-                    <Avatar speaker={sp} label={label(t.speakerId)} size={28} />
+                    <Avatar speaker={m.speakers[x.speakerId]} label={x.speakerId ? label(x.speakerId) : '·'} size={28} active />
                     <div className="turn-body">
                       <div className="turn-head">
-                        <span className="anchor">
-                          <button
-                            className="turn-name"
-                            style={{ color }}
-                            onClick={() => setMenu(menu === t.key ? null : t.key)}
-                            title="Cambiar quién dice esto"
-                          >
-                            {label(t.speakerId)}
-                          </button>
-                          <Popover open={menu === t.key} onClose={() => setMenu(null)} className="pop-speaker">
-                            <div className="menu-heading">¿Quién dice esto?</div>
-                            {!m.speakers[ME] && (
-                              <button className="menu-item" onClick={() => { setMenu(null); p.onReassign(t.segments.map((s) => s.id), ME) }}>
-                                <span className="mi-icon"><UserRound size={14} /></span>
-                                <span className="mi-label">Yo</span>
-                              </button>
-                            )}
-                            {speakers.map((s) => (
-                              <button
-                                key={s.id}
-                                className={`menu-item ${s.id === t.speakerId ? 'current' : ''}`}
-                                onClick={() => {
-                                  setMenu(null)
-                                  if (s.id !== t.speakerId) p.onReassign(t.segments.map((x) => x.id), s.id)
-                                }}
-                              >
-                                <Avatar speaker={s} label={label(s.id)} size={18} />
-                                <span className="mi-label">{label(s.id)}</span>
-                              </button>
-                            ))}
-                            <div className="menu-sep" />
-                            <button className="menu-item" onClick={() => { setMenu(null); p.onReassign(t.segments.map((s) => s.id), 'new') }}>
-                              <span className="mi-icon"><UserPlus size={14} /></span>
-                              <span className="mi-label">Persona nueva</span>
-                            </button>
-                          </Popover>
-                        </span>
-                        {canPlay ? (
-                          <button className="turn-time seek" onClick={() => player.current?.playFrom(t.start)} title="Escuchar desde aquí">
-                            <Play size={9} fill="currentColor" /> {fmtTime(t.start)}
-                          </button>
-                        ) : (
-                          <span className="turn-time">{fmtTime(t.start)}</span>
-                        )}
-                        {langs.mixed && t.segments[0].lang && t.segments[0].lang !== langs.main && (
-                          <span className="lang-tag" title="Idioma detectado">{t.segments[0].lang.toUpperCase()}</span>
-                        )}
+                        <span className="turn-name muted">{x.speakerId ? label(x.speakerId) : 'Hablando'}</span>
+                        <span className="typing"><i /><i /><i /></span>
                       </div>
-                      <div className="turn-text">
-                        {t.segments.map((s) =>
-                          editing === s.id ? (
-                            <textarea
-                              key={s.id}
-                              className="seg-edit"
-                              autoFocus
-                              value={draft}
-                              onChange={(e) => setDraft(e.target.value)}
-                              onBlur={() => {
-                                setEditing(null)
-                                if (draft.trim() && draft !== s.text) p.onEditSegment(s.id, draft.trim())
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                  e.preventDefault()
-                                  ;(e.target as HTMLTextAreaElement).blur()
-                                }
-                                if (e.key === 'Escape') setEditing(null)
-                              }}
-                            />
-                          ) : (
-                            <span
-                              key={s.id}
-                              className={`seg ${s.id === activeId ? 'playing' : ''}`}
-                              onDoubleClick={() => {
-                                setEditing(s.id)
-                                setDraft(s.text)
-                              }}
-                              title="Doble clic para corregir el texto"
-                            >
-                              {p.highlight
-                                ? highlightParts(s.text, p.highlight).map((part, i) =>
-                                    part.hit ? <mark key={i}>{part.text}</mark> : part.text
-                                  )
-                                : s.text}{' '}
-                            </span>
-                          )
-                        )}
-                      </div>
+                      <div className="turn-text">{x.text}</div>
                     </div>
                   </motion.div>
-                )
-              })}
-              {livePartials.map((x, i) => (
-                <motion.div
-                  key={`partial-${i}`}
-                  className="turn partial"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={soft}
-                >
-                  <Avatar speaker={m.speakers[x.speakerId]} label={x.speakerId ? label(x.speakerId) : '·'} size={28} active />
-                  <div className="turn-body">
-                    <div className="turn-head">
-                      <span className="turn-name muted">{x.speakerId ? label(x.speakerId) : 'Hablando'}</span>
-                      <span className="typing"><i /><i /><i /></span>
-                    </div>
-                    <div className="turn-text">{x.text}</div>
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        )}
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+
+        <AnimatePresence>
+          {!stick && !empty && (
+            <motion.button
+              className="jump-bottom"
+              initial={{ opacity: 0, y: 10, x: '-50%' }}
+              animate={{ opacity: 1, y: 0, x: '-50%' }}
+              exit={{ opacity: 0, y: 10, x: '-50%' }}
+              transition={soft}
+              onClick={() => setStick(true)}
+            >
+              <ArrowDown size={13} /> Ir al final
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
 
+      <SelectionMenu container={scroller} glossary={p.glossary} onGlossary={p.onGlossary} />
+
       {canPlay && (
-        <AudioPlayer
+        <Player
           key={m.id}
           ref={player}
           src={`meeting-audio://${m.id}/?v=${m.durationSec}`}
           video={m.hasScreen ? `meeting-audio://${m.id}/screen?v=${m.durationSec}` : undefined}
           videoOffset={m.screenOffset}
           duration={m.durationSec}
+          marks={marks}
           onTime={onTime}
         />
       )}
-
-      <AnimatePresence>
-        {!stick && !empty && (
-          <motion.button
-            className="jump-bottom"
-            initial={{ opacity: 0, y: 10, x: '-50%' }}
-            animate={{ opacity: 1, y: 0, x: '-50%' }}
-            exit={{ opacity: 0, y: 10, x: '-50%' }}
-            transition={soft}
-            onClick={() => setStick(true)}
-          >
-            <ArrowDown size={13} /> Ir al final
-          </motion.button>
-        )}
-      </AnimatePresence>
     </div>
   )
 }

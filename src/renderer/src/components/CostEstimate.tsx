@@ -9,6 +9,8 @@ const usd = (n: number): string =>
   n.toLocaleString('es-ES', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 interface Tip {
+  /** Acción propia en lugar de aplicar el cambio (p. ej. instalar la IA local). */
+  run?: () => void
   text: string
   saving: number
   patch: Partial<Settings>
@@ -31,6 +33,17 @@ function tipsFor(s: Settings, current: number): Tip[] {
     const patch = { anthropicModel: 'claude-sonnet-5' }
     tips.push({ text: 'Resumir con Claude Sonnet 5 en lugar de un modelo de gama alta.', saving: saving(patch), patch, action: 'Usar Sonnet 5' })
   }
+  if (s.llmProvider !== 'ollama') {
+    const patch = { llmProvider: 'ollama' as const }
+    tips.push({
+      text: 'Resumir con un modelo local (Ollama) en tu equipo: gratis y la reunión no sale de tu ordenador. Es más lento y algo menos fino.',
+      saving: saving(patch),
+      patch,
+      action: 'Activar IA local',
+      // Instala y configura Ollama y el modelo si hace falta; al terminar cambia el proveedor.
+      run: () => void window.api.startLocalAi()
+    })
+  }
   if (s.liveProvider !== 'none') {
     const patch = { liveProvider: 'none' as const }
     tips.push({
@@ -40,7 +53,7 @@ function tipsFor(s: Settings, current: number): Tip[] {
       action: 'Desactivar en vivo'
     })
   }
-  return tips.filter((t) => t.saving > 0.005).sort((a, b) => b.saving - a.saving).slice(0, 2)
+  return tips.filter((t) => t.saving > 0.005).sort((a, b) => b.saving - a.saving).slice(0, 3)
 }
 
 export function CostEstimate({ s, set }: { s: Settings; set: (p: Partial<Settings>) => void }): React.JSX.Element {
@@ -123,7 +136,7 @@ export function CostEstimate({ s, set }: { s: Settings; set: (p: Partial<Setting
               <span className="cost-tip-text">
                 <strong>Ahorra {usd(t.saving)}/h</strong> · {t.text}
               </span>
-              <button className="btn sm" onClick={() => set(t.patch)}>
+              <button className="btn sm" onClick={() => (t.run ? t.run() : set(t.patch))}>
                 {t.action}
               </button>
             </div>

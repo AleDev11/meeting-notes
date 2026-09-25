@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   AudioLines,
+  CircleCheck,
   ChevronDown,
   Download,
+  Folder as FolderIcon,
   FolderOpen,
   Monitor,
   MonitorOff,
@@ -16,13 +18,15 @@ import {
   PanelLeftOpen,
   Pause,
   PictureInPicture2,
+  Plus,
   Play,
   RefreshCw,
   ScrollText,
   Square,
   Trash2
 } from 'lucide-react'
-import type { Meeting, NoteSection, ScreenSource, Settings, SpeakerSuggestion } from '@shared/types'
+import type { Folder, Meeting, NoteSection, ScreenSource, Settings, SpeakerSuggestion } from '@shared/types'
+import { finalProviderFor } from '@shared/languages'
 import type { Levels, Source } from '../audio/recorder'
 import { fmtDate, fmtDuration, fmtTime } from '../util'
 import { NotesPanel } from './NotesPanel'
@@ -35,6 +39,9 @@ const FINAL_NAMES = { elevenlabs: 'ElevenLabs', deepgram: 'Deepgram', assemblyai
 
 interface Props {
   meeting: Meeting
+  /** Carpetas que contienen la reunión, de la raíz hacia dentro. */
+  folderPath: Folder[]
+  onRevealFolder: (id: string) => void
   settings: Settings
   sidebarHidden: boolean
   onShowSidebar: () => void
@@ -58,6 +65,7 @@ interface Props {
   screenOn: boolean
   onToggleScreen: () => void
   onStart: () => void
+  onNewMeeting: () => void
   onStop: () => void
   partials: LivePartial[]
   onTitle: (t: string) => void
@@ -68,6 +76,7 @@ interface Props {
   onSuggestSpeakers: () => Promise<SpeakerSuggestion[]>
   onReassign: (segmentIds: string[], speakerId: string) => void
   onEditSegment: (segmentId: string, text: string) => void
+  onGlossary: (glossary: Settings['glossary']) => void
   onRetranscribe: () => void
   onGenerateSummary: (promptId: string) => void
   summaryStreaming: string | null
@@ -92,7 +101,8 @@ export function MeetingView(p: Props): React.JSX.Element {
   const [sideTab, setSideTab] = useState<'notes' | 'summary'>('notes')
   const [menu, setMenu] = useState(false)
   const activeSpeakers = p.partials.filter((x) => x.text).map((x) => x.speakerId)
-  const providerName = p.settings.llmProvider === 'openai' ? 'ChatGPT' : 'Claude'
+  const providerName =
+    p.settings.llmProvider === 'openai' ? 'ChatGPT' : p.settings.llmProvider === 'ollama' ? `${p.settings.ollamaModel} (Ollama)` : 'Claude'
 
   const transcript = (
     <TranscriptView
@@ -102,14 +112,16 @@ export function MeetingView(p: Props): React.JSX.Element {
       recording={p.isRecording}
       liveNotice={p.liveNotice}
       partials={p.partials}
-      finalProviderName={FINAL_NAMES[p.settings.finalProvider]}
+      finalProviderName={FINAL_NAMES[finalProviderFor(p.settings)]}
       onReassign={p.onReassign}
       onEditSegment={p.onEditSegment}
       onRetranscribe={p.onRetranscribe}
       highlight={p.highlight}
+      glossary={p.settings.glossary}
+      onGlossary={p.onGlossary}
     />
   )
-  const notes = <NotesPanel sections={m.sections} elapsedSec={p.isRecording ? p.elapsed : null} onChange={p.onSections} />
+  const notes = <NotesPanel meetingId={m.id} sections={m.sections} elapsedSec={p.isRecording ? p.elapsed : null} onChange={p.onSections} />
   const summary = (
     <SummaryPanel
       key={m.id}
@@ -140,6 +152,9 @@ export function MeetingView(p: Props): React.JSX.Element {
       <span className={`status-tag ${m.finalized ? 'final' : 'live'}`}>{m.finalized ? 'Final' : 'En vivo'}</span>
     ) : null
 
+  // Una reunión, una grabación: después solo queda crear otra.
+  const recorded = !p.isRecording && !p.starting && ((m.hasAudio && m.durationSec > 0) || m.transcript.length > 0)
+
   return (
     <div className="meeting-view">
       <header className="mv-header">
@@ -152,6 +167,19 @@ export function MeetingView(p: Props): React.JSX.Element {
           <div className="mv-titles">
             <input className="mv-title" value={m.title} onChange={(e) => p.onTitle(e.target.value)} aria-label="Título" />
             <div className="mv-meta">
+              {p.folderPath.length > 0 && (
+                <span className="meta-path">
+                  <FolderIcon size={11} />
+                  {p.folderPath.map((f, i) => (
+                    <Fragment key={f.id}>
+                      {i > 0 && <span className="meta-path-sep">/</span>}
+                      <button className="meta-path-seg" title="Mostrar en el panel" onClick={() => p.onRevealFolder(f.id)}>
+                        {f.name}
+                      </button>
+                    </Fragment>
+                  ))}
+                </span>
+              )}
               <span>{fmtDate(m.createdAt)}</span>
               {m.durationSec > 0 && !p.isRecording && <span>{fmtDuration(m.durationSec)}</span>}
               {m.status === 'processing' && (
@@ -163,6 +191,17 @@ export function MeetingView(p: Props): React.JSX.Element {
           </div>
 
           <div className="rec-controls">
+            {recorded ? (
+              <>
+                <span className="recorded-tag" title="Cada reunión tiene una sola grabación">
+                  <CircleCheck size={14} /> Grabación terminada
+                </span>
+                <button className="btn" onClick={p.onNewMeeting} title="Crear otra reunión en la misma carpeta para grabar">
+                  <Plus size={15} /> Nueva reunión
+                </button>
+              </>
+            ) : (
+              <>
             <CaptureToggle
               on={p.captureMic}
               recording={p.isRecording}
@@ -235,6 +274,8 @@ export function MeetingView(p: Props): React.JSX.Element {
                 )}
               </AnimatePresence>
             </motion.button>
+              </>
+            )}
             {p.isRecording && (
               <button className="icon-btn" onClick={p.onOpenMini} title="Modo mini: ventana flotante con la transcripción" aria-label="Modo mini">
                 <PictureInPicture2 size={16} />

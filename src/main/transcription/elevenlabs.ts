@@ -1,9 +1,9 @@
 import { readFile } from 'fs/promises'
 import WebSocket from 'ws'
+import { isMultilingual } from '../../shared/languages'
 import { FormData, request } from './http'
 import {
   BYTES_PER_SECOND,
-  isMultilingual,
   langCode,
   PAUSE_SPLIT,
   SAMPLE_RATE,
@@ -17,15 +17,20 @@ import {
 /**
  * Tiempo real con scribe_v2_realtime. Este endpoint NO distingue hablantes:
  * los segmentos llegan con speaker = null. Sin language_code detecta el idioma
- * y lo cambia sobre la marcha, catalán incluido.
+ * y lo cambia sobre la marcha, catalán incluido. Con varios idiomas se pasan
+ * como secondary_languages y ninguno como principal: fijar uno (sobre todo el
+ * catalán) hace que el resto se traduzca a ese idioma.
  */
 export function elevenLabsLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
   const params = new URLSearchParams({
     model_id: 'scribe_v2_realtime',
     audio_format: `pcm_${SAMPLE_RATE}`,
-    commit_strategy: 'vad'
+    commit_strategy: 'vad',
+    include_timestamps: 'true',
+    include_language_detection: 'true'
   })
-  if (!isMultilingual(o.language)) params.set('language_code', o.language)
+  if (!isMultilingual(o.languages)) params.set('language_code', o.languages[0])
+  else for (const l of o.languages) params.append('secondary_languages', l)
   for (const t of o.keyterms) params.append('keyterms', t)
   const ws = new WebSocket(`wss://api.elevenlabs.io/v1/speech-to-text/realtime?${params}`, {
     headers: { 'xi-api-key': o.apiKey }
@@ -33,6 +38,12 @@ export function elevenLabsLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
   let queue: string[] = []
   let bytesSent = 0
   let lastCommit = 0
+  // Tras cada fragmento llega una copia con marcas de tiempo e idioma detectado.
+  let pending: RawSegment | null = null
+  const flush = (lang?: string): void => {
+    if (pending) cb.onSegment(lang ? { ...pending, lang } : pending)
+    pending = null
+  }
 
   ws.on('open', () => {
     cb.onStatus('connected')
@@ -40,7 +51,7 @@ export function elevenLabsLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
     queue = []
   })
   ws.on('message', (data) => {
-    let msg: { message_type?: string; text?: string; error?: string; message?: string }
+    let msg: { message_type?: string; text?: string; language_code?: string | null; error?: string; message?: string }
     try {
       msg = JSON.parse(data.toString())
     } catch {
@@ -52,13 +63,14 @@ export function elevenLabsLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
         cb.onPartial(msg.text ?? '', null)
         break
       case 'committed_transcript':
-        if (msg.text?.trim()) {
-          cb.onSegment({ speaker: null, text: msg.text.trim(), start: lastCommit, end: now })
-        }
+        flush()
+        if (msg.text?.trim()) pending = { speaker: null, text: msg.text.trim(), start: lastCommit, end: now }
         lastCommit = now
         break
-      case 'session_started':
       case 'committed_transcript_with_timestamps':
+        flush(langCode(msg.language_code ?? undefined))
+        break
+      case 'session_started':
       case 'committed_transcript_entities':
       case 'warning':
         break
@@ -67,7 +79,10 @@ export function elevenLabsLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
     }
   })
   ws.on('error', (e) => cb.onError(`ElevenLabs: ${e.message}`))
-  ws.on('close', () => cb.onStatus('closed'))
+  ws.on('close', () => {
+    flush()
+    cb.onStatus('closed')
+  })
 
   const chunk = (pcm: Uint8Array, commit: boolean): string =>
     JSON.stringify({
@@ -109,7 +124,8 @@ export async function elevenLabsBatch(o: BatchOptions): Promise<RawSegment[]> {
   form.set('diarize', String(o.diarize))
   form.set('timestamps_granularity', 'word')
   form.set('tag_audio_events', 'false')
-  if (!isMultilingual(o.language)) form.set('language_code', o.language)
+  // Sin language_code transcribe cada parte en su idioma aunque se mezclen en el mismo archivo.
+  if (!isMultilingual(o.languages)) form.set('language_code', o.languages[0])
   if (o.diarize && o.expectedSpeakers) form.set('num_speakers', String(o.expectedSpeakers))
   for (const t of o.keyterms) form.append('keyterms', t)
 

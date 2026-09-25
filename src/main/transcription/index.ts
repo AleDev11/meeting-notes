@@ -1,3 +1,4 @@
+import { finalProviderFor, liveProviderFor } from '../../shared/languages'
 import type { AudioChannel, FinalProvider, Settings } from '../../shared/types'
 import { isFatalLive } from '../failures'
 import { assemblyAiBatch } from './assemblyai'
@@ -10,10 +11,13 @@ export const LIVE_PROVIDER_INFO = {
   elevenlabs: { diarizes: false, name: 'ElevenLabs' }
 } as const
 
-/** Nombres y términos que el reconocimiento debe esperar (personas conocidas y vocabulario). */
+/** Nombres y términos que el reconocimiento debe esperar (jergas y personas conocidas). */
 export function keytermsFor(s: Settings): string[] {
-  const terms = [s.myName, ...s.knownPeople, ...s.vocabulary].map((t) => t.trim()).filter((t) => t && t.length < 50)
-  return [...new Set(terms)]
+  const terms = [s.myName, ...s.glossary.map((g) => g.term), ...s.knownPeople]
+    .map((t) => t.trim())
+    .filter((t) => t && t.length < 50)
+  // Los proveedores limitan el número de términos: primero los explícitos del usuario.
+  return [...new Set(terms)].slice(0, 100)
 }
 
 const MAX_RETRIES = 5
@@ -82,8 +86,8 @@ export function createLiveSession(
   cb: LiveCallbacks
 ): LiveSession | null {
   // El canal del micrófono es siempre "yo": no hace falta separar hablantes.
-  const opts = { language: s.language, diarize: channel !== 'mic', keyterms: keytermsFor(s) }
-  switch (s.liveProvider) {
+  const opts = { languages: s.languages, diarize: channel !== 'mic', keyterms: keytermsFor(s) }
+  switch (liveProviderFor(s)) {
     case 'deepgram': {
       const apiKey = s.keys.deepgram
       if (!apiKey) throw new Error('Falta la API key de Deepgram (Configuración > API keys).')
@@ -110,19 +114,20 @@ export async function transcribeFile(
   audioFile: string,
   o: { diarize: boolean; expectedSpeakers: number | null }
 ): Promise<RawSegment[]> {
-  if (s.finalProvider === 'none') throw new Error('No hay proveedor de transcripción final configurado.')
-  const apiKey = s.keys[KEY_FOR[s.finalProvider]]
-  if (!apiKey) throw new Error(`Falta la API key de ${s.finalProvider} (Configuración > API keys).`)
+  const provider = finalProviderFor(s)
+  if (provider === 'none') throw new Error('No hay proveedor de transcripción final configurado.')
+  const apiKey = s.keys[KEY_FOR[provider]]
+  if (!apiKey) throw new Error(`Falta la API key de ${provider} (Configuración > API keys).`)
   const opts = {
     apiKey,
     audioFile,
-    language: s.language,
+    languages: s.languages,
     diarize: o.diarize,
     expectedSpeakers: o.expectedSpeakers,
     keyterms: keytermsFor(s),
     model: s.deepgramModel
   }
-  switch (s.finalProvider) {
+  switch (provider) {
     case 'elevenlabs':
       return elevenLabsBatch(opts)
     case 'deepgram':

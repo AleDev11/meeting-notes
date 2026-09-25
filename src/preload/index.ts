@@ -1,10 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  ApiKeys,
   AudioChannel,
   Folder,
   LiveEvent,
   Meeting,
   MeetingSummary,
+  KeyCheck,
+  KeySource,
+  LocalAiDetection,
+  LocalAiState,
+  OllamaStatus,
   RecordingTrack,
   ScreenSource,
   SearchResult,
@@ -30,6 +36,18 @@ const api = {
   saveSettings: (s: Settings): Promise<void> => invoke('settings:save', s),
   getDefaults: (): Promise<{ prompts: PromptTemplate[]; speakerIdPrompt: string }> =>
     invoke('settings:defaults'),
+  ollamaStatus: (url: string): Promise<OllamaStatus> => invoke('ollama:status', url),
+  // IA local con un clic (Ollama + Qwen): el proceso principal hace el trabajo y difunde el estado.
+  localAiState: (): Promise<LocalAiState> => invoke('localAi:get'),
+  localAiDetect: (): Promise<LocalAiDetection> => invoke('localAi:detect'),
+  startLocalAi: (opts?: { model?: string }): Promise<void> => invoke('localAi:start', opts),
+  cancelLocalAi: (): Promise<void> => invoke('localAi:cancel'),
+  onLocalAiState: (cb: (s: LocalAiState) => void) => subscribe('localAi:state', cb),
+  /** Cambios de configuración hechos desde el proceso principal (p. ej. al terminar de activar la IA local). */
+  onSettingsPatched: (cb: (patch: Partial<Settings>) => void) => subscribe('settings:patched', cb),
+  /** Comprueba la key contra el proveedor (desde el proceso principal). */
+  keySources: (): Promise<Partial<Record<keyof ApiKeys, KeySource>>> => invoke('keys:sources'),
+  checkKey: (provider: keyof ApiKeys, key: string): Promise<KeyCheck> => invoke('keys:check', provider, key),
   appInfo: (): Promise<{ version: string; packaged: boolean; libraryDir: string }> => invoke('app:info'),
   publishRecordingState: (s: { recording: boolean; paused: boolean }): void => ipcRenderer.send('recording:state', s),
   quitApp: (): Promise<void> => invoke('app:quit'),
@@ -63,6 +81,10 @@ const api = {
   retranscribe: (id: string): Promise<void> => invoke('meeting:retranscribe', id),
   retryPending: (): Promise<void> => invoke('meeting:retryPending'),
   exportMeeting: (id: string): Promise<void> => invoke('meeting:export', id),
+  /** Guarda una imagen de las notas y devuelve el nombre del fichero (<uuid>.<ext>). */
+  addAttachment: (meetingId: string, bytes: Uint8Array): Promise<string> => invoke('attachment:add', meetingId, bytes),
+  removeAttachment: (meetingId: string, file: string): Promise<void> => invoke('attachment:remove', meetingId, file),
+  showAttachment: (meetingId: string, file: string): Promise<void> => invoke('attachment:show', meetingId, file),
 
   renameSpeaker: (meetingId: string, speakerId: string, name: string): Promise<void> =>
     invoke('speaker:rename', meetingId, speakerId, name),
@@ -103,7 +125,14 @@ const api = {
   sendMiniCommand: (cmd: MiniCommand): void => ipcRenderer.send('mini:command', cmd),
   onMiniState: (cb: (s: MiniState) => void) => subscribe('mini:state', cb),
   onMiniCommand: (cb: (cmd: MiniCommand) => void) => subscribe('mini:command', cb),
-  onMiniClosed: (cb: () => void) => subscribe('mini:closed', cb)
+  onMiniClosed: (cb: () => void) => subscribe('mini:closed', cb),
+
+  // barra de título propia
+  minimizeWindow: (): void => ipcRenderer.send('window:minimize'),
+  toggleMaximizeWindow: (): void => ipcRenderer.send('window:toggleMaximize'),
+  closeWindow: (): void => ipcRenderer.send('window:close'),
+  isWindowMaximized: (): Promise<boolean> => invoke('window:isMaximized'),
+  onWindowMaximized: (cb: (maximized: boolean) => void) => subscribe('window:maximized', cb)
 }
 
 export type Api = typeof api
