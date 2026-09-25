@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { AnimatePresence, motion } from 'motion/react'
 import { Check, Copy, Download, Eye, Pencil, RefreshCw, ScrollText } from 'lucide-react'
 import type { Meeting, PromptTemplate } from '@shared/types'
@@ -84,7 +85,7 @@ export function SummaryPanel(p: Props): React.JSX.Element {
           <textarea className="summary-editor" value={m.summary ?? ''} onChange={(e) => p.onEdit(e.target.value)} />
         ) : text ? (
           <motion.div className={`markdown ${busy ? 'streaming' : ''}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={soft}>
-            <Markdown>{text}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
           </motion.div>
         ) : busy ? (
           <div className="skeleton">
