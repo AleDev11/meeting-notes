@@ -9,6 +9,8 @@ const usd = (n: number): string =>
   n.toLocaleString('es-ES', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 interface Tip {
+  /** Acción propia en lugar de aplicar el cambio (p. ej. instalar la IA local). */
+  run?: () => void
   text: string
   saving: number
   patch: Partial<Settings>
@@ -37,7 +39,9 @@ function tipsFor(s: Settings, current: number): Tip[] {
       text: 'Resumir con un modelo local (Ollama) en tu equipo: gratis y la reunión no sale de tu ordenador. Es más lento y algo menos fino.',
       saving: saving(patch),
       patch,
-      action: 'Usar Ollama'
+      action: 'Activar IA local',
+      // Instala y configura Ollama y el modelo si hace falta; al terminar cambia el proveedor.
+      run: () => void window.api.startLocalAi()
     })
   }
   if (s.liveProvider !== 'none') {
@@ -132,7 +136,7 @@ export function CostEstimate({ s, set }: { s: Settings; set: (p: Partial<Setting
               <span className="cost-tip-text">
                 <strong>Ahorra {usd(t.saving)}/h</strong> · {t.text}
               </span>
-              <button className="btn sm" onClick={() => set(t.patch)}>
+              <button className="btn sm" onClick={() => (t.run ? t.run() : set(t.patch))}>
                 {t.action}
               </button>
             </div>
