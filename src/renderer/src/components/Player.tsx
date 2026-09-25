@@ -156,12 +156,12 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
   }
 
   const toggleFullscreen = (): void => {
-    if (document.fullscreenElement) void document.exitFullscreen()
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
     else if (withVideo) void stage.current?.requestFullscreen()
   }
 
   const togglePip = (): void => {
-    if (document.pictureInPictureElement) void document.exitPictureInPicture()
+    if (document.pictureInPictureElement) void document.exitPictureInPicture().catch(() => {})
     else void screen.current?.requestPictureInPicture().catch(() => {})
   }
 
@@ -264,8 +264,8 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
   // Si se esconde el vídeo, fuera de pantalla completa y de PiP.
   useEffect(() => {
     if (withVideo) return
-    if (document.fullscreenElement === stage.current) void document.exitFullscreen()
-    if (document.pictureInPictureElement === screen.current) void document.exitPictureInPicture()
+    if (document.fullscreenElement === stage.current) void document.exitFullscreen().catch(() => {})
+    if (document.pictureInPictureElement === screen.current) void document.exitPictureInPicture().catch(() => {})
   }, [withVideo])
 
   const readBuffered = (): void => {

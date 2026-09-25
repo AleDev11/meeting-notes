@@ -19,6 +19,7 @@ import type { ApiKeys, FinalProvider, KeySource, LiveProvider, LlmProvider, Loca
 import { finalProviderFor, languageNames, LANGUAGES, liveProviderFor } from '@shared/languages'
 import { Field, Logo, quick, soft, spring, Toggle } from './ui'
 import { MultiSelect } from './Select'
+import { micLabel } from '../audio/recorder'
 import { keyInfo, KeyInput, KeyStatus, useKeyChecks, type KeyState } from './keys'
 import { languageHint, MicField, SEPARATE_MIC_DESC } from './SettingsView'
 import { LocalAiCard, localAiSummary, useLocalAi } from './LocalAi'
@@ -370,7 +371,10 @@ export function Onboarding({ settings, closable, onSave, onFinish, onClose }: Pr
                   <h2>
                     <Mic size={16} /> Tu micrófono
                   </h2>
-                  <MicField value={d.micDeviceId} onChange={(micDeviceId) => set({ micDeviceId })} />
+                  <MicField
+                    value={d.micDeviceId}
+                    onChange={(micDeviceId) => void micLabel(micDeviceId).then((micDeviceLabel) => set({ micDeviceId, micDeviceLabel }))}
+                  />
                   <p className="muted small">Pulsa Probar micrófono y habla: la barra debería moverse con tu voz.</p>
                 </section>
                 <section className="card">

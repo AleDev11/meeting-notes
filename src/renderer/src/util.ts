@@ -39,11 +39,19 @@ export function initials(label: string): string {
   return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase()
 }
 
+const CAPTURE_ERRORS: Record<string, string> = {
+  OverconstrainedError: 'El micrófono elegido no está disponible. Elige otro en la flecha junto a Micrófono.',
+  NotFoundError: 'No se ha encontrado ningún micrófono. Conecta uno o desactiva Micrófono.',
+  NotReadableError: 'No se puede usar el micrófono: puede que otra aplicación lo esté usando en exclusiva.',
+  NotAllowedError: 'Windows no ha dado permiso para capturar el audio. Revisa la privacidad del micrófono en Configuración de Windows.',
+  AbortError: 'Se ha interrumpido la captura de audio. Vuelve a intentarlo.'
+}
+
 export function errorMessage(e: unknown): string {
-  return String((e as Error)?.message ?? e).replace(
-    /^Error invoking remote method '[^']+': (Error: )?/,
-    ''
-  )
+  const err = e as Error | undefined
+  const text = String(err?.message ?? e ?? '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '').trim()
+  if (err?.name && CAPTURE_ERRORS[err.name]) return text ? `${CAPTURE_ERRORS[err.name]} (${text})` : CAPTURE_ERRORS[err.name]
+  return text || `Ha ocurrido un error inesperado${err?.name && err.name !== 'Error' ? ` (${err.name})` : ''}.`
 }
 
 /** Minúsculas y sin tildes, carácter a carácter (mantiene la correspondencia de posiciones). */

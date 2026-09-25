@@ -5,6 +5,8 @@ export interface CapturePlan {
   mic: boolean
   system: boolean
   micDeviceId: string
+  /** Nombre del micrófono elegido: sirve para encontrarlo si su identificador cambia. */
+  micDeviceLabel?: string
   /** Transcribir el micrófono aparte (siempre "yo") y el sistema aparte. */
   separate: boolean
   /** Grabar también la pantalla elegida (screen.mp4, con el audio mezclado). */
@@ -46,6 +48,10 @@ export class MeetingRecorder {
   private meetingId = ''
   private mixStream: MediaStream | null = null
   private screenTrack: MediaStreamTrack | null = null
+  /** Avisos que no impiden grabar (p. ej. micrófono elegido no disponible). */
+  warnings: string[] = []
+  /** Micrófono que se está usando de verdad. */
+  micDeviceId = ''
 
   constructor(private onLevels?: (l: Levels) => void) {}
 
@@ -78,9 +84,12 @@ export class MeetingRecorder {
       }
     }
     if (p.mic) {
+      const mic = await resolveMic(p.micDeviceId, p.micDeviceLabel ?? '')
+      if (mic.warning) this.warnings.push(mic.warning)
+      this.micDeviceId = mic.deviceId ?? ''
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          deviceId: p.micDeviceId ? { exact: p.micDeviceId } : undefined,
+          deviceId: mic.deviceId ? { exact: mic.deviceId } : undefined,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true
@@ -263,4 +272,27 @@ export class MeetingRecorder {
     this.recorders = []
     return duration
   }
+}
+
+/**
+ * Encuentra el micrófono elegido. Su identificador depende de desde dónde se abra la
+ * app (instalada o en desarrollo) y puede cambiar al reinstalar drivers, así que si no
+ * aparece se busca por nombre; si tampoco, se usa el predeterminado y se avisa.
+ */
+export async function resolveMic(id: string, label: string): Promise<{ deviceId?: string; warning?: string }> {
+  if (!id) return {}
+  const inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput')
+  if (inputs.some((d) => d.deviceId === id)) return { deviceId: id }
+  const byLabel = label ? inputs.find((d) => d.label === label) : undefined
+  if (byLabel) return { deviceId: byLabel.deviceId }
+  return {
+    warning: `No se encuentra el micrófono elegido${label ? ` (${label})` : ''}: se usa el predeterminado del sistema. Puedes cambiarlo en la flecha junto a Micrófono.`
+  }
+}
+
+/** Nombre de un micrófono por su identificador (para guardarlo junto a él). */
+export async function micLabel(id: string): Promise<string> {
+  if (!id) return ''
+  const devices = await navigator.mediaDevices.enumerateDevices()
+  return devices.find((d) => d.kind === 'audioinput' && d.deviceId === id)?.label ?? ''
 }

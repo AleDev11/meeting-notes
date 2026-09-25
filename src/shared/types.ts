@@ -233,6 +233,8 @@ export interface Settings {
   /** Idiomas que se hablan en las reuniones. Vacío = detectar cualquiera. */
   languages: string[]
   micDeviceId: string
+  /** Nombre del micrófono elegido, para reconocerlo si cambia su identificador. */
+  micDeviceLabel?: string
   /** Transcribe el micrófono aparte y lo etiqueta siempre como "yo". */
   separateMic: boolean
   /** Grabar también la pantalla y cuál (identificador del monitor). */
