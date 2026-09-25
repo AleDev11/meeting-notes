@@ -57,8 +57,11 @@ Funciona con Teams, Google Meet, Zoom, Discord o cualquier aplicación que suene
 <td>
 
 - **Modo mini:** una ventana pequeña, siempre visible, con las últimas frases en directo.
-- **Graba la pantalla** que elijas junto con el audio, para no perder las presentaciones. El vídeo se reproduce
-  sincronizado con la transcripción y se guarda en MP4.
+- **Graba la pantalla** que elijas junto con el audio, para no perder las presentaciones. Al empezar te pregunta si
+  quieres grabarla y puedes activarla o desactivarla en cualquier momento. El vídeo se reproduce sincronizado con la
+  transcripción y se guarda en MP4.
+- **Nunca pierdes una reunión.** Si un proveedor se queda sin crédito o sin conexión a mitad, se sigue grabando y te
+  avisa. La transcripción queda pendiente y se hace sola en cuanto vuelve a funcionar.
 - **Pausa y silencio:** para tu micrófono o el audio de la reunión cuando no quieras que se grabe.
 - **En segundo plano:** vive en la bandeja del sistema, con acciones rápidas para crear una reunión y empezar a
   grabar. Puede iniciarse con Windows.

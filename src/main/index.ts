@@ -27,6 +27,7 @@ import {
   renameSpeaker
 } from './speakers'
 import { applyLoginItem, claimSingleInstance, setupBackground, startHidden } from './background'
+import { classify, explain, isFatalLive, isRecoverable } from './failures'
 import { handleMediaRequests, registerMediaScheme } from './media'
 import { registerMini } from './mini'
 import * as store from './store'
@@ -148,7 +149,15 @@ function startRecording(meetingId: string, channels: AudioChannel[], withScreen 
           emitLive({ type: 'partial', channel, speakerId, text })
         },
         onStatus: (status) => emitLive({ type: 'status', channel, status }),
-        onError: (message) => emitLive({ type: 'error', message })
+        onError: (message) => {
+          if (!isFatalLive(message)) return emitLive({ type: 'error', message })
+          const provider = LIVE_NAMES[settings.liveProvider] ?? settings.liveProvider
+          emitLive({
+            type: 'degraded',
+            channel,
+            message: `${explain(provider, classify(message))}. La grabación sigue: el audio${withScreen ? ' y la pantalla' : ''} se transcribirán al terminar, o cuando vuelva a haber crédito.`
+          })
+        }
       })
       if (session) r.sessions.set(channel, session)
     }
@@ -168,6 +177,7 @@ function startRecording(meetingId: string, channels: AudioChannel[], withScreen 
     m.status = 'recording'
     m.hasAudio = true
     m.hasScreen = withScreen
+    m.screenOffset = undefined
     m.error = undefined
   })
 }
@@ -198,12 +208,20 @@ async function transcribeRecording(meetingId: string, s: Settings): Promise<RawS
   return mix ? transcribeFile(s, mix, { diarize: true, expectedSpeakers: s.expectedSpeakers }) : null
 }
 
+const LIVE_NAMES: Record<string, string> = { deepgram: 'Deepgram', elevenlabs: 'ElevenLabs' }
+const FINAL_NAMES: Record<string, string> = { deepgram: 'Deepgram', elevenlabs: 'ElevenLabs', assemblyai: 'AssemblyAI' }
+
+/** Reuniones cuya pasada final está en marcha: evita lanzar dos a la vez. */
+const processing = new Set<string>()
+
 async function finalPass(meetingId: string): Promise<void> {
+  if (processing.has(meetingId)) return
   const settings = loadSettings()
   if (settings.finalProvider === 'none' || !store.audioTrack(meetingId, 'mix')) {
     mutate(meetingId, (m) => (m.status = 'done'))
     return
   }
+  processing.add(meetingId)
   mutate(meetingId, (m) => {
     m.status = 'processing'
     m.error = undefined
@@ -215,11 +233,39 @@ async function finalPass(meetingId: string): Promise<void> {
       m.status = 'done'
     })
   } catch (err) {
+    const message = (err as Error).message
+    const kind = classify(message)
+    const provider = FINAL_NAMES[settings.finalProvider] ?? settings.finalProvider
+    // Sin crédito, sin conexión o con la clave mal: la grabación está a salvo y se procesará más tarde.
     mutate(meetingId, (m) => {
-      m.status = 'error'
-      m.error = `Transcripción final: ${(err as Error).message}`
+      m.status = isRecoverable(kind) ? 'pending' : 'error'
+      m.error = isRecoverable(kind) ? `${explain(provider, kind)}.` : `Transcripción final: ${message}`
     })
+  } finally {
+    processing.delete(meetingId)
   }
+}
+
+/** Errores de la IA de resúmenes con un mensaje comprensible (sin crédito, clave rechazada…). */
+async function withLlmErrors<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    const message = (err as Error).message
+    const kind = classify(message)
+    if (kind === 'other') throw err
+    const provider = loadSettings().llmProvider === 'openai' ? 'OpenAI' : 'Anthropic'
+    const hint = kind === 'credits' ? ' Recarga saldo en su consola y vuelve a intentarlo.' : kind === 'auth' ? ' Revísala en Configuración > API keys.' : ' Vuelve a intentarlo en unos minutos.'
+    throw new Error(`${explain(provider, kind)}.${hint}`)
+  }
+}
+
+const RETRY_EVERY = 30 * 60 * 1000
+
+/** Reintenta las transcripciones pendientes (al abrir la app, cada 30 min y al cambiar las claves). */
+function retryPending(): void {
+  if (rec) return
+  for (const m of store.listMeetings()) if (m.status === 'pending') void finalPass(m.id)
 }
 
 /**
@@ -228,8 +274,9 @@ async function finalPass(meetingId: string): Promise<void> {
  */
 function resumeInterrupted(): void {
   for (const m of store.listMeetings()) {
-    if (m.status === 'recording' || m.status === 'processing') void finalPass(m.id)
+    if (m.status === 'recording' || m.status === 'processing' || m.status === 'pending') void finalPass(m.id)
   }
+  setInterval(retryPending, RETRY_EVERY)
 }
 
 // ---------------- IPC ----------------
@@ -237,9 +284,13 @@ function resumeInterrupted(): void {
 function registerIpc(): void {
   ipcMain.handle('settings:get', () => loadSettings())
   ipcMain.handle('settings:save', (_e, s: Settings) => {
+    const before = loadSettings()
     saveSettings(s)
     applyLoginItem(s)
+    // Nuevas claves o proveedor distinto: puede que ya se puedan procesar las pendientes.
+    if (JSON.stringify(before.keys) !== JSON.stringify(s.keys) || before.finalProvider !== s.finalProvider) retryPending()
   })
+  ipcMain.handle('meeting:retryPending', () => retryPending())
   ipcMain.handle('settings:defaults', () => ({
     prompts: BUILTIN_PROMPTS,
     speakerIdPrompt: DEFAULT_SPEAKER_ID_PROMPT
@@ -344,7 +395,7 @@ function registerIpc(): void {
   ipcMain.handle('speaker:suggest', async (_e, meetingId: string) => {
     const m = store.getMeeting(meetingId)
     if (!m) throw new Error('Reunión no encontrada')
-    return suggestSpeakerNames(m, loadSettings())
+    return withLlmErrors(() => suggestSpeakerNames(m, loadSettings()))
   })
 
   // grabación
@@ -355,6 +406,13 @@ function registerIpc(): void {
     rec?.sessions.get(channel)?.sendAudio(chunk)
   )
   ipcMain.handle('screens:list', () => listScreens())
+  // La pantalla se activó a mitad de grabación: el vídeo empieza en ese segundo.
+  ipcMain.handle('recording:screenStarted', (_e, meetingId: string, offset: number) =>
+    mutate(meetingId, (m) => {
+      m.hasScreen = true
+      m.screenOffset = offset
+    })
+  )
   // Elige la pantalla por su monitor; si ya no está conectado, se usa la principal.
   ipcMain.handle('screens:select', async (_e, displayId: string) => {
     const sources = await desktopCapturer.getSources({ types: ['screen'] })
@@ -383,8 +441,8 @@ function registerIpc(): void {
   ipcMain.handle('summary:generate', async (_e, id: string, promptId: string) => {
     const m = store.getMeeting(id)
     if (!m) throw new Error('Reunión no encontrada')
-    const summary = await summarize(m, loadSettings(), promptId, (delta) =>
-      emit('summary:delta', { meetingId: id, delta })
+    const summary = await withLlmErrors(() =>
+      summarize(m, loadSettings(), promptId, (delta) => emit('summary:delta', { meetingId: id, delta }))
     )
     mutate(id, (x) => {
       x.summary = summary

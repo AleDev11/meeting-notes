@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Maximize2, Mic, MicOff, MonitorSpeaker, MonitorX, Pause, Play, Square } from 'lucide-react'
+import { Maximize2, Mic, MicOff, Monitor, MonitorOff, MonitorSpeaker, MonitorX, Pause, Play, Square } from 'lucide-react'
 import type { MiniCommand, MiniState, SourceState } from '@shared/types'
 import { fmtTime } from './util'
 
@@ -31,6 +31,7 @@ export default function MiniApp(): React.JSX.Element {
         </button>
       </header>
 
+      {s?.notice && <p className="mini-notice">{s.notice}</p>}
       <div className="mini-lines" ref={scroller}>
         {!s?.lines.length ? (
           <p className="mini-empty">{s?.paused ? 'Grabación en pausa' : 'Escuchando…'}</p>
@@ -58,6 +59,13 @@ export default function MiniApp(): React.JSX.Element {
           label="Audio de la reunión"
           onClick={() => send('toggleSystem')}
         />
+        <button
+          className={`mini-btn ${s?.screen ? '' : 'dim'}`}
+          onClick={() => send('toggleScreen')}
+          title={s?.screen ? 'Pantalla: se graba. Pulsa para desactivarla' : 'Pantalla: no se graba. Pulsa para grabarla'}
+        >
+          {s?.screen ? <Monitor size={14} /> : <MonitorOff size={14} />}
+        </button>
         <button
           className={`mini-btn ${s?.paused ? 'active' : ''}`}
           onClick={() => send(s?.paused ? 'resume' : 'pause')}

@@ -63,6 +63,7 @@ export function registerMini(getMain: () => BrowserWindow | null, icon: string):
   })
   ipcMain.on('mini:command', (_e, cmd: MiniCommand) => {
     if (cmd === 'expand') mini?.close()
+    else if (cmd === 'toggleScreen') void getMain()?.webContents.executeJavaScript('window.__appAction?.("toggle-screen")', true)
     else getMain()?.webContents.send('mini:command', cmd)
   })
 }

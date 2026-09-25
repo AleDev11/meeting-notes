@@ -61,6 +61,7 @@ const api = {
   reorderMeetings: (u: Pick<Meeting, 'id' | 'folderId' | 'order'>[]): Promise<void> =>
     invoke('meeting:reorder', u),
   retranscribe: (id: string): Promise<void> => invoke('meeting:retranscribe', id),
+  retryPending: (): Promise<void> => invoke('meeting:retryPending'),
   exportMeeting: (id: string): Promise<void> => invoke('meeting:export', id),
 
   renameSpeaker: (meetingId: string, speakerId: string, name: string): Promise<void> =>
@@ -77,6 +78,7 @@ const api = {
   startRecording: (meetingId: string, channels: AudioChannel[], withScreen: boolean): Promise<void> =>
     invoke('recording:start', meetingId, channels, withScreen),
   listScreens: (): Promise<ScreenSource[]> => invoke('screens:list'),
+  screenStarted: (meetingId: string, offset: number): Promise<void> => invoke('recording:screenStarted', meetingId, offset),
   selectScreen: (displayId: string): Promise<void> => invoke('screens:select', displayId),
   showScreenFile: (id: string): Promise<void> => invoke('meeting:showScreenFile', id),
   sendPcm: (channel: AudioChannel, chunk: Uint8Array): void =>

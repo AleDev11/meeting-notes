@@ -110,7 +110,7 @@ export function deepgramLive(o: LiveOptions, cb: LiveCallbacks): LiveSession {
     queue = []
   })
   ws.on('unexpected-response', (_req, res) => {
-    cb.onError(`Deepgram ${res.statusCode}: revisa la API key, el modelo o el idioma.`)
+    cb.onError(`Deepgram ${res.statusCode}: ${res.statusCode === 402 ? 'sin crédito' : 'revisa la API key, el modelo o el idioma'}.`)
   })
   ws.on('message', (data) => {
     let msg: {

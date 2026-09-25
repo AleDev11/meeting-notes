@@ -11,6 +11,10 @@ export interface CapturePlan {
   screen: boolean
 }
 
+/** Para reuniones y presentaciones bastan 10 imágenes por segundo a 1080p como mucho. */
+const limitScreen = (t: MediaStreamTrack): Promise<void> =>
+  t.applyConstraints({ frameRate: { max: 10 }, width: { max: 1920 }, height: { max: 1080 } }).catch(() => {})
+
 /** Formatos de vídeo por orden de preferencia: MP4/H.264 se abre en cualquier reproductor. */
 const VIDEO_TYPES = ['video/mp4;codecs=avc1,opus', 'video/webm;codecs=h264,opus', 'video/webm;codecs=vp8,opus']
 
@@ -39,11 +43,15 @@ export class MeetingRecorder {
   private paused = false
   private activeMs = 0
   private resumedAt = 0
+  private meetingId = ''
+  private mixStream: MediaStream | null = null
+  private screenTrack: MediaStreamTrack | null = null
 
   constructor(private onLevels?: (l: Levels) => void) {}
 
   async start(p: CapturePlan): Promise<void> {
     if (!p.mic && !p.system) throw new Error('Activa al menos el micrófono o el audio del sistema.')
+    this.meetingId = p.meetingId
 
     let systemStream: MediaStream | null = null
     let micStream: MediaStream | null = null
@@ -55,8 +63,7 @@ export class MeetingRecorder {
       for (const t of display.getVideoTracks()) {
         if (p.screen && !screenTrack) {
           screenTrack = t
-          // Para reuniones y presentaciones bastan 10 imágenes por segundo a 1080p como mucho.
-          await t.applyConstraints({ frameRate: { max: 10 }, width: { max: 1920 }, height: { max: 1080 } }).catch(() => {})
+          await limitScreen(t)
         } else {
           t.stop()
           display.removeTrack(t)
@@ -139,12 +146,44 @@ export class MeetingRecorder {
       this.record(p.meetingId, 'mic', micStream!, 32000)
       this.record(p.meetingId, 'system', systemStream!, 32000)
     }
-    if (screenTrack) {
-      const video = new MediaStream([screenTrack, ...mix.stream.getAudioTracks()])
-      const mimeType = VIDEO_TYPES.find((t) => MediaRecorder.isTypeSupported(t))
-      this.record(p.meetingId, 'screen', video, 64000, { mimeType, videoBitsPerSecond: 1_500_000 })
-    }
+    this.mixStream = mix.stream
+    if (screenTrack) this.recordScreen(screenTrack)
     this.resumedAt = Date.now()
+  }
+
+  private recordScreen(track: MediaStreamTrack): void {
+    this.screenTrack = track
+    const video = new MediaStream([track, ...(this.mixStream?.getAudioTracks() ?? [])])
+    const mimeType = VIDEO_TYPES.find((t) => MediaRecorder.isTypeSupported(t))
+    this.record(this.meetingId, 'screen', video, 64000, { mimeType, videoBitsPerSecond: 1_500_000 })
+  }
+
+  /** true si la pantalla se está grabando ahora mismo (no desactivada). */
+  get screenOn(): boolean {
+    return !!this.screenTrack?.enabled
+  }
+
+  /**
+   * Activa o desactiva la pantalla en mitad de la grabación. Desactivada se graba en
+   * negro para que el vídeo siga cuadrando con el audio. Si no se estaba grabando,
+   * empieza ahora: devuelve el segundo de la reunión en que arranca el vídeo.
+   */
+  async setScreen(on: boolean): Promise<number | null> {
+    if (this.screenTrack) {
+      this.screenTrack.enabled = on
+      return null
+    }
+    if (!on) return null
+    const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+    this.streams.push(display)
+    display.getAudioTracks().forEach((t) => t.stop())
+    const [track] = display.getVideoTracks()
+    if (!track) throw new Error('No se pudo capturar la pantalla.')
+    await limitScreen(track)
+    const offset = Math.round(this.elapsedExact * 100) / 100
+    this.recordScreen(track)
+    if (this.paused) this.recorders[this.recorders.length - 1].pause()
+    return offset
   }
 
   private record(
@@ -191,8 +230,11 @@ export class MeetingRecorder {
 
   /** Segundos grabados, sin contar las pausas. */
   get elapsed(): number {
-    const ms = this.activeMs + (this.paused || !this.resumedAt ? 0 : Date.now() - this.resumedAt)
-    return Math.round(ms / 1000)
+    return Math.round(this.elapsedExact)
+  }
+
+  private get elapsedExact(): number {
+    return (this.activeMs + (this.paused || !this.resumedAt ? 0 : Date.now() - this.resumedAt)) / 1000
   }
 
   /** Detiene todo y devuelve la duración grabada en segundos. */
@@ -214,6 +256,8 @@ export class MeetingRecorder {
     this.streams.forEach((s) => s.getTracks().forEach((t) => t.stop()))
     this.streams = []
     this.sources = {}
+    this.screenTrack = null
+    this.mixStream = null
     await this.ctx?.close()
     this.ctx = null
     this.recorders = []

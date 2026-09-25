@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import {
   ArrowDownToLine,
   ChevronRight,
+  Clock,
   FilePlus2,
   Folder as FolderIcon,
   FolderPlus,
@@ -165,6 +166,8 @@ export function Sidebar(p: Props): React.JSX.Element {
                 <span className="rec-dot" />
               ) : m.status === 'processing' ? (
                 <Loader2 size={13} className="spin" />
+              ) : m.status === 'pending' ? (
+                <Clock size={13} className="row-pending" />
               ) : (
                 <span className="row-bullet" />
               )}
@@ -172,7 +175,7 @@ export function Sidebar(p: Props): React.JSX.Element {
             <span className="row-body">
               <span className="row-title">{m.title}</span>
               <span className="row-sub">
-                {recording ? 'Grabando ahora' : fmtDate(m.createdAt)}
+                {recording ? 'Grabando ahora' : m.status === 'pending' ? 'Pendiente de transcribir' : fmtDate(m.createdAt)}
                 {!recording && m.durationSec > 0 && <> · {fmtDuration(m.durationSec)}</>}
               </span>
             </span>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { AlertCircle, ArrowDown, AudioLines, Play, RefreshCw, UserPlus, UserRound } from 'lucide-react'
+import { AlertCircle, ArrowDown, AudioLines, Clock, Play, RefreshCw, UserPlus, UserRound, WifiOff } from 'lucide-react'
 import { ME, OTHERS, speakerLabel, type Meeting, type TranscriptSegment } from '@shared/types'
 import { fmtTime, highlightParts, speakerColor } from '../util'
 import { AudioPlayer, type PlayerHandle } from './AudioPlayer'
@@ -16,6 +16,7 @@ interface Props {
   meeting: Meeting
   myName: string
   recording: boolean
+  liveNotice: string | null
   partials: LivePartial[]
   finalProviderName: string
   onReassign: (segmentIds: string[], speakerId: string) => void
@@ -107,6 +108,24 @@ export function TranscriptView(p: Props): React.JSX.Element {
             </span>
           </motion.div>
         )}
+        {p.recording && p.liveNotice && (
+          <motion.div className="banner warn" {...bannerMotion}>
+            <WifiOff size={15} />
+            <span>{p.liveNotice}</span>
+          </motion.div>
+        )}
+        {m.status === 'pending' && (
+          <motion.div className="banner warn" {...bannerMotion}>
+            <Clock size={15} />
+            <span>
+              Transcripción pendiente. {m.error} La grabación está guardada y se procesará sola en cuanto funcione: al
+              abrir la app, cada 30 minutos o al cambiar las claves.
+            </span>
+            <button className="btn sm" onClick={p.onRetranscribe}>
+              <RefreshCw size={13} /> Procesar ahora
+            </button>
+          </motion.div>
+        )}
         {m.status === 'error' && m.error && (
           <motion.div className="banner error" {...bannerMotion}>
             <AlertCircle size={15} />
@@ -128,8 +147,17 @@ export function TranscriptView(p: Props): React.JSX.Element {
             </div>
             {p.recording ? (
               <>
-                <h4>Escuchando</h4>
-                <p>El texto aparecerá aquí en cuanto alguien hable.</p>
+                <h4>{p.liveNotice ? 'Grabando sin transcripción en vivo' : 'Escuchando'}</h4>
+                <p>
+                  {p.liveNotice
+                    ? 'El texto aparecerá cuando se procese la grabación.'
+                    : 'El texto aparecerá aquí en cuanto alguien hable.'}
+                </p>
+              </>
+            ) : m.status === 'pending' ? (
+              <>
+                <h4>Transcripción pendiente</h4>
+                <p>La grabación está guardada: puedes escucharla abajo mientras tanto.</p>
               </>
             ) : (
               <>
@@ -280,6 +308,7 @@ export function TranscriptView(p: Props): React.JSX.Element {
           ref={player}
           src={`meeting-audio://${m.id}/?v=${m.durationSec}`}
           video={m.hasScreen ? `meeting-audio://${m.id}/screen?v=${m.durationSec}` : undefined}
+          videoOffset={m.screenOffset}
           duration={m.durationSec}
           onTime={onTime}
         />
