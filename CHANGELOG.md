@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/AleDev11/meeting-notes/compare/v0.7.2...v0.7.3) (2026-09-25)
+
+
+### Correcciones
+
+* grabar aunque el micrófono guardado ya no exista ([#19](https://github.com/AleDev11/meeting-notes/issues/19)) ([6397217](https://github.com/AleDev11/meeting-notes/commit/639721797283bf3e02c775db0b7a384bf89b58cc))
+
 ## [0.7.2](https://github.com/AleDev11/meeting-notes/compare/v0.7.1...v0.7.2) (2026-09-25)
 
 
