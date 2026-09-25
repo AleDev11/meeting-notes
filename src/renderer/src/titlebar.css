@@ -46,3 +46,7 @@
 .app .sidebar { padding-top: 0; }
 .sidebar-top { height: 52px; -webkit-app-region: drag; }
 .sidebar-top button { -webkit-app-region: no-drag; }
+
+/* El asistente de primer uso ocupa toda la ventana: los botones de ventana quedan por encima. */
+.titlebar { z-index: 60; }
+.onb-layer { padding-top: var(--titlebar); }

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { normalizeGlossary } from '../shared/glossary'
 import { DEFAULT_OLLAMA_URL, RECOMMENDED_OLLAMA_MODEL } from '../shared/types'
-import type { ApiKeys, PromptTemplate, Settings } from '../shared/types'
+import type { ApiKeys, KeySource, PromptTemplate, Settings } from '../shared/types'
 
 const COMMON_RULES = `Usa los nombres de los hablantes tal y como aparecen. No inventes información que no esté en la transcripción o en las notas. Responde en el idioma de la reunión, en Markdown.`
 
@@ -126,8 +126,12 @@ const defaults: Settings = {
   knownPeople: [],
   openAtLogin: false,
   minimizeToTray: true,
-  closeToTray: true
+  closeToTray: true,
+  onboardingDone: false
 }
+
+/** Con una key de transcripción la app ya es usable: no hace falta el asistente de primer uso. */
+const hasTranscriptionKey = (k: ApiKeys): boolean => !!(k.elevenlabs || k.deepgram || k.assemblyai)
 
 const file = (): string => join(app.getPath('userData'), 'settings.json')
 
@@ -158,7 +162,7 @@ const ENV_NAMES: Record<keyof ApiKeys, string> = {
  * Sirve para llevar el proyecto a otro equipo: allí las keys cifradas de
  * settings.json no se pueden descifrar (DPAPI está ligado al usuario de Windows).
  */
-function envKeys(): Partial<ApiKeys> {
+function envKeys(): Partial<Record<keyof ApiKeys, { value: string; source: KeySource }>> {
   const vars: Record<string, string> = {}
   for (const dir of [app.getAppPath(), process.cwd()]) {
     const f = join(dir, '.env.local')
@@ -169,10 +173,10 @@ function envKeys(): Partial<ApiKeys> {
     }
     break
   }
-  const out: Partial<ApiKeys> = {}
+  const out: Partial<Record<keyof ApiKeys, { value: string; source: KeySource }>> = {}
   for (const [k, name] of Object.entries(ENV_NAMES) as [keyof ApiKeys, string][]) {
-    const v = process.env[name] || vars[name]
-    if (v) out[k] = v
+    if (process.env[name]) out[k] = { value: process.env[name]!, source: 'env' }
+    else if (vars[name]) out[k] = { value: vars[name], source: 'file' }
   }
   return out
 }
@@ -180,18 +184,37 @@ function envKeys(): Partial<ApiKeys> {
 function withEnvKeys(keys: ApiKeys): ApiKeys {
   const env = envKeys()
   const out = { ...keys }
-  for (const k of Object.keys(out) as (keyof ApiKeys)[]) if (!out[k] && env[k]) out[k] = env[k]!
+  for (const k of Object.keys(out) as (keyof ApiKeys)[]) if (!out[k] && env[k]) out[k] = env[k]!.value
+  return out
+}
+
+/** De dónde sale cada key disponible: guardada en la app, del archivo .env.local o de una variable de entorno. */
+export function keySources(): Partial<Record<keyof ApiKeys, KeySource>> {
+  const out: Partial<Record<keyof ApiKeys, KeySource>> = {}
+  const env = envKeys()
+  const raw: Partial<ApiKeys> = existsSync(file()) ? ((JSON.parse(readFileSync(file(), 'utf8')) as Partial<Settings>).keys ?? {}) : {}
+  for (const k of Object.keys(defaultKeys) as (keyof ApiKeys)[]) {
+    const saved = decrypt(raw[k] ?? '')
+    // Al guardar la configuración se copian también las keys de .env.local: si coinciden, el origen es ese.
+    if (env[k] && (!saved || saved === env[k]!.value)) out[k] = env[k]!.source
+    else if (saved) out[k] = 'saved'
+  }
   return out
 }
 
 export function loadSettings(): Settings {
-  if (!existsSync(file())) return { ...structuredClone(defaults), keys: withEnvKeys({ ...defaultKeys }) }
+  if (!existsSync(file())) {
+    const keys = withEnvKeys({ ...defaultKeys })
+    return { ...structuredClone(defaults), keys, onboardingDone: hasTranscriptionKey(keys) }
+  }
   const { language, ...raw } = JSON.parse(readFileSync(file(), 'utf8')) as Partial<Settings> & { language?: string }
   let keys = { ...defaultKeys, ...(raw.keys ?? {}) }
   for (const k of Object.keys(keys) as (keyof ApiKeys)[]) keys[k] = decrypt(keys[k])
   keys = withEnvKeys(keys)
   const { vocabulary, ...rest } = raw as Partial<Settings> & { vocabulary?: string[] }
   const s: Settings = { ...structuredClone(defaults), ...rest, keys }
+  // Con una key de transcripción (guardada o de .env.local) no se muestra el asistente.
+  s.onboardingDone = !!raw.onboardingDone || hasTranscriptionKey(keys)
   // Antes se guardaba un único idioma. 'multi' (o '') era "Varios idiomas": en la práctica español,
   // catalán e inglés, que es lo que se habla en estas reuniones.
   if (!raw.languages && language !== undefined) {
