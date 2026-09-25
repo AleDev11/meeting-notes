@@ -249,22 +249,50 @@ select {
 
 
 .tree { position: relative; flex: 1; overflow-y: auto; overflow-x: hidden; padding: 2px 8px 20px; }
+/* Las filas anidadas se desplazan con margen (no con relleno): el fondo de hover y de
+   selección empieza a la derecha de la guía de su nivel en lugar de taparla. */
 .row {
   position: relative; display: flex; align-items: center; gap: 8px; padding-right: 6px; margin: 1px 0;
   border-radius: var(--r); cursor: pointer; user-select: none; color: var(--text-2);
   transition: background 0.12s, color 0.12s;
 }
 .row:hover { background: var(--surface-2); color: var(--text); }
+.row:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--focus); border-radius: var(--r); }
 .row > *:not(.row-selected-bg) { position: relative; z-index: 1; }
 .row-selected-bg { position: absolute; inset: 0; border-radius: var(--r); background: var(--surface-3); z-index: 0; }
 .row.selected { color: var(--text); }
 .row.drop { box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--accent-soft); }
-.row-meeting { min-height: 44px; padding-top: 5px; padding-bottom: 5px; }
-.row-folder { height: 30px; font-weight: 550; color: var(--text); }
-.row-lead { width: 16px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
-.row-bullet { width: 5px; height: 5px; border-radius: 50%; background: var(--faint); transition: background 0.15s; }
-.row.selected .row-bullet { background: var(--accent); }
+.row-meeting { min-height: 44px; padding-top: 5px; padding-bottom: 5px; padding-left: 8px; }
+.row-folder { height: 30px; padding-left: 4px; font-weight: 550; color: var(--text); }
+.row-lead { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+/* Renombrar en la fila: el texto queda donde estaba el título. */
+.row-rename {
+  width: calc(100% + 6px); height: 22px; margin: -1px 0 -1.5px -6px; padding: 0 5px;
+  font-size: 13px; font-weight: inherit; color: var(--text); border-radius: var(--r-sm); cursor: text; user-select: text;
+}
+.row-rename:focus { box-shadow: 0 0 0 2px var(--accent-soft); }
+.row-folder .row-rename { flex: 1; width: auto; min-width: 0; margin: 0 0 0 -6px; }
+.row.editing, .row.editing:hover { background: none; }
+.tree .row.editing .row-count, .tree .row.editing .row-tools, .tree .row.editing .row-action { display: none; }
+
+/* Estado de la reunión: iconos circulares de 14px. */
+.st { display: block; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: color 0.15s; }
+.st-idle { color: var(--faint); }
+.st-done { color: var(--faint); }
+.st-done .st-mark { stroke: var(--muted); }
+.row:hover .st-done .st-mark, .row.selected .st-done .st-mark { stroke: var(--text-2); }
+.st-processing, .st-pending, .st-paused { color: var(--warn); }
+.st-summary { color: var(--accent); }
+.st.st-processing, .st.st-summary { animation: spin 1s linear infinite; }
+.st .st-track { opacity: 0.25; }
+.st-error { color: var(--danger); }
+.st-error .st-fill { fill: currentColor; stroke: none; }
+.st-error .st-cut { stroke: var(--sidebar); stroke-width: 1.6; }
+.row-state.st-recording { color: var(--record); }
+.row-state.st-paused, .row-state.st-processing, .row-state.st-pending { color: var(--warn); }
+.row-state.st-summary { color: var(--accent); }
+.row-state.st-error { color: var(--danger); }
 .row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .row-folder .row-title { flex: 1; }
 .row-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -354,7 +382,6 @@ select {
 .banner.warn { background: rgba(231, 178, 90, 0.1); border-color: transparent; color: var(--warn); }
 .banner.warn > span { color: var(--text-2); }
 .banner.warn svg { flex-shrink: 0; }
-.row-pending { color: var(--warn); }
 .mini-notice { padding: 6px 12px; font-size: 11.5px; line-height: 1.4; color: var(--warn); background: rgba(231, 178, 90, 0.1); flex-shrink: 0; }
 
 .empty { margin: auto; max-width: 380px; padding: 32px 20px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; }
