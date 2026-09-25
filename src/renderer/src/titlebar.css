@@ -40,3 +40,9 @@
   .win-btn:hover { background: rgba(0, 0, 0, 0.055); }
   .win-btn:active { background: rgba(0, 0, 0, 0.035); }
 }
+
+/* La fila del logo de la barra lateral ocupa la franja de título: se arrastra desde ella
+   y el botón de plegar sigue siendo pulsable. */
+.app .sidebar { padding-top: 0; }
+.sidebar-top { height: 52px; -webkit-app-region: drag; }
+.sidebar-top button { -webkit-app-region: no-drag; }
